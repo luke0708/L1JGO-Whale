@@ -268,7 +268,9 @@ func (s *NpcAISystem) tickGuardAI(npc *world.NpcInfo) {
 			if p.Dead || p.Invisible {
 				continue
 			}
-			if p.WantedTicks <= 0 && !p.PinkName {
+			// Java L1GuardInstance.searchTarget(): 只追殺通緝犯（isWanted）
+			// PinkName（桃紅名＝暫時攻擊他人）不觸發警衛追殺
+			if p.WantedTicks <= 0 {
 				continue
 			}
 			dist := chebyshev32(npc.X, npc.Y, p.X, p.Y)

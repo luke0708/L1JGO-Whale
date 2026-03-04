@@ -31,6 +31,9 @@ func HandleChangeChar(sess *net.Session, _ *packet.Reader, deps *Deps) {
 	// Remove from world if in-world
 	player = deps.World.RemovePlayer(sess.ID)
 	if player != nil {
+		// 清理決鬥狀態（通知對手）
+		ClearDuelOnDisconnect(player, deps.World)
+
 		// 清理進行中的交易
 		cancelTradeIfActive(player, deps)
 

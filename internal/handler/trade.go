@@ -8,16 +8,27 @@ import (
 	"github.com/l1jgo/server/internal/world"
 )
 
-// yesNoCounter 是 S_Message_YN 對話框的全域序號（供 trade、party、clan 等共用）。
+// yesNoCounter 是 S_Message_YN 交易對話框的全域序號。
+// Java: AtomicInteger(1)，首次 incrementAndGet() 返回 2。
 var yesNoCounter atomic.Int32
 
+func init() {
+	yesNoCounter.Store(1)
+}
+
 // sendYesNoDialog 發送 S_Message_YN (opcode 219)。
-// Java 格式：[H 0x0000][D yesNoCount][H messageType][S param...]
+// Java 格式：
+//   交易（252）：[H 0x0000][D counter][H 0x00fc][S name]  — counter 非零
+//   其他類型：    [H 0x0000][D 0x00000000][H msgType][S args...] — D 固定為 0
 func sendYesNoDialog(sess *net.Session, msgType uint16, args ...string) {
-	count := yesNoCounter.Add(1)
+	var countVal int32
+	if msgType == 252 {
+		// Java S_Message_YN(String name): 只有交易使用序號
+		countVal = yesNoCounter.Add(1)
+	}
 	w := packet.NewWriterWithOpcode(packet.S_OPCODE_YES_NO)
 	w.WriteH(0)
-	w.WriteD(count)
+	w.WriteD(countVal)
 	w.WriteH(msgType)
 	for _, arg := range args {
 		w.WriteS(arg)
@@ -57,9 +68,11 @@ func HandleAskTrade(sess *net.Session, _ *packet.Reader, deps *Deps) {
 
 // handleTradeYesNo 處理目標的 Yes/No 交易確認回應。
 // 由 HandleAttr (attr.go) 和 NPC 動作呼叫。
-func handleTradeYesNo(sess *net.Session, player *world.PlayerInfo, partnerID int32, accepted bool, deps *Deps) {
+// Java C_Attr case 252: 使用 pc.getTradeID()（專用欄位）查找交易對手，
+// 而非 PendingYesNoData（通用 Y/N 欄位），避免被其他 Y/N 對話框覆蓋。
+func handleTradeYesNo(sess *net.Session, player *world.PlayerInfo, _ int32, accepted bool, deps *Deps) {
 	if deps.Trade != nil {
-		deps.Trade.HandleYesNo(sess, player, partnerID, accepted)
+		deps.Trade.HandleYesNo(sess, player, player.TradePartnerID, accepted)
 	}
 }
 
