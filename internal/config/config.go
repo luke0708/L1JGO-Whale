@@ -20,6 +20,7 @@ type Config struct {
 	Gameplay    GameplayConfig    `toml:"gameplay"`
 	Lua         LuaConfig         `toml:"lua"`
 	AntiCheat   AntiCheatConfig   `toml:"anti_cheat"`
+	Debug       DebugConfig       `toml:"debug"`
 	Logging     LoggingConfig     `toml:"logging"`
 	RateLimit   RateLimitConfig   `toml:"rate_limit"`
 }
@@ -125,6 +126,10 @@ type GameplayConfig struct {
 	InitialFood    int `toml:"initial_food"`    // food on creation / respawn
 	BaseAC         int `toml:"base_ac"`         // base AC for all characters
 	MaxFoodSatiety int `toml:"max_food_satiety"` // food cap from eating
+}
+
+type DebugConfig struct {
+	ShowNpcID bool `toml:"show_npc_id"` // NPC 名稱旁顯示 NPC ID 和 GFX ID
 }
 
 type LoggingConfig struct {

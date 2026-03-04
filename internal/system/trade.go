@@ -6,7 +6,6 @@ import (
 
 	"github.com/l1jgo/server/internal/handler"
 	"github.com/l1jgo/server/internal/net"
-	"github.com/l1jgo/server/internal/net/packet"
 	"github.com/l1jgo/server/internal/persist"
 	"github.com/l1jgo/server/internal/world"
 	"go.uber.org/zap"
@@ -449,32 +448,16 @@ func clearTradeState(p *world.PlayerInfo) {
 	p.TradeGold = 0
 }
 
-// --- 交易專用封包 ---
+// --- 交易專用封包（委派給 handler 套件） ---
 
-// sendTradeOpen 發送 S_TRADE (opcode 52) — 開啟交易視窗。
 func sendTradeOpen(sess *net.Session, partnerName string) {
-	w := packet.NewWriterWithOpcode(packet.S_OPCODE_TRADE)
-	w.WriteD(0)
-	w.WriteS(partnerName)
-	sess.Send(w.Bytes())
+	handler.SendTradeOpen(sess, partnerName)
 }
 
-// sendTradeAddItem 發送 S_TRADEADDITEM (opcode 35) — 交易物品加入。
 func sendTradeAddItem(sess *net.Session, gfxID uint16, viewName string, bless byte, panelType byte) {
-	w := packet.NewWriterWithOpcode(packet.S_OPCODE_TRADEADDITEM)
-	w.WriteC(panelType)
-	w.WriteH(gfxID)
-	w.WriteS(viewName)
-	w.WriteC(bless)
-	w.WriteC(0)
-	w.WriteH(0)
-	sess.Send(w.Bytes())
+	handler.SendTradeAddItem(sess, gfxID, viewName, bless, panelType)
 }
 
-// sendTradeStatus 發送 S_TRADESTATUS (opcode 112) — 交易狀態更新。
-// 0=交易完成, 1=交易取消
 func sendTradeStatus(sess *net.Session, status byte) {
-	w := packet.NewWriterWithOpcode(packet.S_OPCODE_TRADESTATUS)
-	w.WriteC(status)
-	sess.Send(w.Bytes())
+	handler.SendTradeStatus(sess, status)
 }

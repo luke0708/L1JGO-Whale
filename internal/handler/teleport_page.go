@@ -152,7 +152,16 @@ func executeTeleportPage(sess *net.Session, player *world.PlayerInfo, dest *data
 	player.TelePage = 0
 	player.TeleNpcObjID = 0
 
-	teleportPlayer(sess, player, dest.X, dest.Y, dest.MapID, 5, deps) // heading=5 (south)
+	// 出發特效 + 延遲 2 tick（400ms）傳送，讓客戶端播完特效動畫
+	SendEffectOnPlayer(sess, player.CharID, 169)
+	nearby := deps.World.GetNearbyPlayers(player.X, player.Y, player.MapID, sess.ID)
+	for _, viewer := range nearby {
+		SendEffectOnPlayer(viewer.Session, player.CharID, 169)
+	}
+	player.ScrollTPTick = 2
+	player.ScrollTPX = dest.X
+	player.ScrollTPY = dest.Y
+	player.ScrollTPMap = dest.MapID
 
 	deps.Log.Info(fmt.Sprintf("分頁傳送  角色=%s  目的地=%s  x=%d  y=%d  地圖=%d  花費=%d",
 		player.Name, dest.Name, dest.X, dest.Y, dest.MapID, dest.Price))

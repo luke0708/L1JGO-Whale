@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"fmt"
+
 	"github.com/l1jgo/server/internal/data"
 	"github.com/l1jgo/server/internal/net"
 	"github.com/l1jgo/server/internal/net/packet"
@@ -23,6 +25,14 @@ func HandleBuySell(sess *net.Session, r *packet.Reader, deps *Deps) {
 
 	player := deps.World.GetBySession(sess.ID)
 	if player == nil {
+		return
+	}
+
+	// 火神精煉攔截：玩家從火神精煉介面「賣出」物品 → 換取結晶
+	// Java: S_ShopBuyListFireSmith 使用 S_OPCODE_SHOP_SELL_LIST，
+	// 客戶端回傳 C_Result type=1（賣出），需攔截處理。
+	if resultType == 1 && player.FireSmithNpcObjID != 0 && player.FireSmithNpcObjID == npcObjID {
+		handleFireSmithSell(sess, r, count, player, npcObjID, deps)
 		return
 	}
 
@@ -204,4 +214,104 @@ func SendServerMessage(sess *net.Session, msgID uint16) {
 // SendServerMessageArgs 匯出 sendServerMessageArgs — 供 system 套件發送帶參數系統訊息。
 func SendServerMessageArgs(sess *net.Session, msgID uint16, args ...string) {
 	sendServerMessageArgs(sess, msgID, args...)
+}
+
+// handleFireSmithSell 處理火神精煉賣出 — 分解物品換取魔法結晶體。
+// Java: S_ShopBuyListFireSmith 發送的「商店賣出列表」，客戶端回傳 C_Result type=1。
+// 封包格式：[D objectID][D count] × N（與一般賣出相同）。
+// 玩家「賣出」的物品會被移除，並獲得對應數量的魔法結晶體（item 41246）。
+func handleFireSmithSell(sess *net.Session, r *packet.Reader, count int, player *world.PlayerInfo, npcObjID int32, deps *Deps) {
+	// 清除火神精煉狀態
+	player.FireSmithNpcObjID = 0
+
+	if count <= 0 || count > 100 {
+		return
+	}
+	if deps.FireCrystals == nil {
+		return
+	}
+
+	const crystalItemID int32 = 41246 // 魔法結晶體
+
+	type sellOrder struct {
+		objectID int32
+		qty      int32
+	}
+	orders := make([]sellOrder, 0, count)
+	for i := 0; i < count; i++ {
+		objID := r.ReadD()
+		qty := r.ReadD()
+		if qty <= 0 {
+			qty = 1
+		}
+		orders = append(orders, sellOrder{objectID: objID, qty: qty})
+	}
+
+	var totalCrystals int32
+
+	for _, o := range orders {
+		invItem := player.Inv.FindByObjectID(o.objectID)
+		if invItem == nil || invItem.Equipped {
+			continue
+		}
+
+		itemInfo := deps.Items.Get(invItem.ItemID)
+		if itemInfo == nil || itemInfo.Category == data.CategoryEtcItem {
+			continue
+		}
+
+		// 計算基礎 item ID（去除祝福/詛咒偏移）
+		lookupID := invItem.ItemID
+		if invItem.Bless == 0 {
+			candidateID := invItem.ItemID - 100000
+			if ci := deps.Items.Get(candidateID); ci != nil && ci.Name == itemInfo.Name {
+				lookupID = candidateID
+			}
+		} else if invItem.Bless == 2 {
+			candidateID := invItem.ItemID - 200000
+			if ci := deps.Items.Get(candidateID); ci != nil && ci.Name == itemInfo.Name {
+				lookupID = candidateID
+			}
+		}
+
+		entry := deps.FireCrystals.Get(lookupID)
+		if entry == nil {
+			continue
+		}
+
+		crystalCount := entry.GetCrystalCount(int(invItem.EnchantLvl), int(itemInfo.Category), itemInfo.SafeEnchant)
+		if crystalCount <= 0 {
+			continue
+		}
+
+		// 武器/防具不可堆疊，qty 固定為 1
+		sellQty := o.qty
+		if sellQty > invItem.Count {
+			sellQty = invItem.Count
+		}
+
+		totalCrystals += crystalCount * sellQty
+
+		// 移除物品
+		removed := player.Inv.RemoveItem(invItem.ObjectID, sellQty)
+		if removed {
+			sendRemoveInventoryItem(sess, invItem.ObjectID)
+		} else {
+			sendItemCountUpdate(sess, invItem)
+		}
+	}
+
+	// 給予魔法結晶體
+	if totalCrystals > 0 {
+		crystalInfo := deps.Items.Get(crystalItemID)
+		if crystalInfo != nil {
+			item := player.Inv.AddItem(crystalItemID, totalCrystals, crystalInfo.Name,
+				crystalInfo.InvGfx, crystalInfo.Weight, crystalInfo.Stackable, byte(crystalInfo.Bless))
+			item.UseType = data.UseTypeToID(crystalInfo.UseType)
+			sendAddItem(sess, item, crystalInfo)
+		}
+	}
+
+	sendWeightUpdate(sess, player)
+	deps.Log.Info(fmt.Sprintf("火神精煉  角色=%s  獲得結晶=%d", player.Name, totalCrystals))
 }

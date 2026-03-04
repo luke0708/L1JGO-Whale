@@ -98,6 +98,7 @@ func (s *DeathSystem) ProcessRestart(sess *net.Session, player *world.PlayerInfo
 		player.MP = player.MaxMP
 	}
 	player.Food = int16(s.deps.Config.Gameplay.InitialFood)
+	player.Dirty = true
 
 	// 取得重生位置（Lua: scripts/world/respawn.lua）
 	rx, ry, rmap := getBackLocation(player.MapID, s.deps)

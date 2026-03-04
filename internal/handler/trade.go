@@ -86,6 +86,12 @@ func HandleAcceptTrade(sess *net.Session, _ *packet.Reader, deps *Deps) {
 		return
 	}
 
+	// NPC 製作交易模式：PendingCraftKey 有值但不在玩家交易中
+	if player.PendingCraftKey != "" && player.TradePartnerID == 0 {
+		handleCraftTradeConfirm(sess, player, deps)
+		return
+	}
+
 	if deps.Trade != nil {
 		deps.Trade.Accept(sess, player)
 	}
@@ -94,7 +100,19 @@ func HandleAcceptTrade(sess *net.Session, _ *packet.Reader, deps *Deps) {
 // HandleCancelTrade 處理 C_CANCEL_XCHG (opcode 86) — 取消交易。
 func HandleCancelTrade(sess *net.Session, _ *packet.Reader, deps *Deps) {
 	player := deps.World.GetBySession(sess.ID)
-	if player == nil || player.TradePartnerID == 0 {
+	if player == nil {
+		return
+	}
+
+	// NPC 製作交易模式：關閉交易視窗但保留配方狀態
+	// ItemBlend 對話框仍在後方，玩家可再次點擊「製作道具」重開交易視窗
+	if player.PendingCraftKey != "" && player.TradePartnerID == 0 {
+		player.CraftTradeTick = 0
+		sendTradeStatus(sess, 1)
+		return
+	}
+
+	if player.TradePartnerID == 0 {
 		return
 	}
 
@@ -117,6 +135,79 @@ func cancelTradeIfActive(player *world.PlayerInfo, deps *Deps) {
 	if deps.Trade != nil {
 		deps.Trade.CancelIfActive(player)
 	}
+}
+
+// --- NPC 製作交易 ---
+
+// handleCraftTradeConfirm 處理 NPC 製作的交易確認。
+// 玩家在交易視窗按確認 → 關閉交易視窗 → 執行製作。
+func handleCraftTradeConfirm(sess *net.Session, player *world.PlayerInfo, deps *Deps) {
+	craftKey := player.PendingCraftKey
+	npcID := player.PendingCraftNpcID
+	player.PendingCraftKey = ""
+	player.PendingCraftNpcID = 0
+	player.CraftTradeTick = 0
+
+	// 先關閉交易視窗
+	sendTradeStatus(sess, 0)
+
+	if deps.ItemMaking == nil || deps.Craft == nil {
+		return
+	}
+
+	recipe := deps.ItemMaking.GetByNpcAction(npcID, craftKey)
+	if recipe == nil {
+		return
+	}
+
+	// 執行製作（npc=nil，因為交易視窗中無法取得 NPC 實例；
+	// ExecuteCraft 已處理 npc=nil 的情況）
+	deps.Craft.ExecuteCraft(sess, player, nil, recipe, 1)
+}
+
+// --- 交易封包函式 ---
+
+// sendTradeOpen 發送 S_TRADE (opcode 52) — 開啟交易視窗。
+// Java S_Trade: writeC(opcode) + writeS(name)，無其他欄位。
+func sendTradeOpen(sess *net.Session, partnerName string) {
+	w := packet.NewWriterWithOpcode(packet.S_OPCODE_TRADE)
+	w.WriteS(partnerName)
+	sess.Send(w.Bytes())
+}
+
+// SendTradeOpen 匯出 sendTradeOpen。
+func SendTradeOpen(sess *net.Session, partnerName string) {
+	sendTradeOpen(sess, partnerName)
+}
+
+// sendTradeAddItem 發送 S_TRADEADDITEM (opcode 35) — 交易物品加入。
+// panelType: 0=玩家側（下方）, 1=對方側（上方）
+// Java S_TradeAddItem: writeC(opcode) + writeC(type) + writeH(gfxId) + writeS(name) + writeC(bless)
+func sendTradeAddItem(sess *net.Session, gfxID uint16, viewName string, bless byte, panelType byte) {
+	w := packet.NewWriterWithOpcode(packet.S_OPCODE_TRADEADDITEM)
+	w.WriteC(panelType)
+	w.WriteH(gfxID)
+	w.WriteS(viewName)
+	w.WriteC(bless)
+	sess.Send(w.Bytes())
+}
+
+// SendTradeAddItem 匯出 sendTradeAddItem。
+func SendTradeAddItem(sess *net.Session, gfxID uint16, viewName string, bless byte, panelType byte) {
+	sendTradeAddItem(sess, gfxID, viewName, bless, panelType)
+}
+
+// sendTradeStatus 發送 S_TRADESTATUS (opcode 112) — 交易狀態更新。
+// 0=交易完成, 1=交易取消
+func sendTradeStatus(sess *net.Session, status byte) {
+	w := packet.NewWriterWithOpcode(packet.S_OPCODE_TRADESTATUS)
+	w.WriteC(status)
+	sess.Send(w.Bytes())
+}
+
+// SendTradeStatus 匯出 sendTradeStatus。
+func SendTradeStatus(sess *net.Session, status byte) {
+	sendTradeStatus(sess, status)
 }
 
 // findFaceToFace 尋找面對面的玩家（相鄰格、反向朝向）。

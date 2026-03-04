@@ -382,6 +382,7 @@ type Deps struct {
 	SpellbookReqs  *data.SpellbookReqTable
 	BuffIcons      *data.BuffIconTable
 	NpcServices    *data.NpcServiceTable
+	QuestRepo     *persist.QuestRepo
 	BuddyRepo     *persist.BuddyRepo
 	ExcludeRepo   *persist.ExcludeRepo
 	BoardRepo     *persist.BoardRepo
@@ -413,6 +414,7 @@ type Deps struct {
 	DragonDoor    DragonDoorManager   // filled after DragonDoorSystem is created
 	Bus           *event.Bus  // event bus for emitting game events (EntityKilled, etc.)
 	WeaponSkills  *data.WeaponSkillTable
+	FireCrystals  *data.FireCrystalTable
 	Ranking       RankingChecker // filled after RankingSystem is created
 }
 

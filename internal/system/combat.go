@@ -127,6 +127,12 @@ func (s *CombatSystem) processMeleeAttack(sessID uint64, targetID int32) *handle
 	// 面向目標
 	player.Heading = CalcHeading(player.X, player.Y, npc.X, npc.Y)
 
+	// 木人特殊處理 — Java: L1ScarecrowInstance.onAction() 不呼叫 commit()，
+	// 只播放攻擊動畫和受傷動畫，不造成傷害，木人永遠不會死亡。
+	if npc.Impl == "L1Scarecrow" {
+		return s.processScarecrowHit(player, npc, ws)
+	}
+
 	// 從裝備武器取得傷害
 	weaponDmg := 4 // 空手傷害
 	targetSize := npc.Size
@@ -161,6 +167,11 @@ func (s *CombatSystem) processMeleeAttack(sessID uint64, targetID int32) *handle
 	damage := int32(result.Damage)
 	if !result.IsHit {
 		damage = 0
+	}
+
+	// 破壞盔甲傷害倍率（Java: L1AttackPc — 近戰非弓攻擊 damage *= 1.58）
+	if damage > 0 && npc.HasDebuff(112) {
+		damage = int32(float64(damage) * 1.58)
 	}
 
 	// 取附近玩家用於廣播
@@ -607,9 +618,71 @@ func FindArrow(player *world.PlayerInfo, deps *handler.Deps) *world.InvItem {
 	return nil
 }
 
+// processScarecrowHit 處理木人攻擊 — 只播放動畫，不造成傷害。
+// Java: L1ScarecrowInstance.onAction() 計算命中/傷害但不呼叫 commit()，
+// 木人 HP 永遠不變，永遠不會死亡。
+func (s *CombatSystem) processScarecrowHit(player *world.PlayerInfo, npc *world.NpcInfo, ws *world.State) *handler.NpcKillResult {
+	weaponDmg := 4
+	targetSize := npc.Size
+	if targetSize == "" {
+		targetSize = "small"
+	}
+	if wpn := player.Equip.Weapon(); wpn != nil {
+		if info := s.deps.Items.Get(wpn.ItemID); info != nil {
+			if targetSize == "large" && info.DmgLarge > 0 {
+				weaponDmg = info.DmgLarge
+			} else if info.DmgSmall > 0 {
+				weaponDmg = info.DmgSmall
+			}
+		}
+	}
+
+	ctx := scripting.CombatContext{
+		AttackerLevel:  int(player.Level),
+		AttackerSTR:    int(player.Str),
+		AttackerDEX:    int(player.Dex),
+		AttackerWeapon: weaponDmg,
+		AttackerHitMod: int(player.HitMod),
+		AttackerDmgMod: int(player.DmgMod),
+		TargetAC:        int(npc.AC),
+		TargetLevel:     int(npc.Level),
+		TargetMR:        int(npc.MR),
+		TargetClassType: -1,
+	}
+	result := s.deps.Scripting.CalcMeleeAttack(ctx)
+
+	damage := int32(result.Damage)
+	if !result.IsHit {
+		damage = 0
+	}
+
+	nearby := ws.GetNearbyPlayersAt(npc.X, npc.Y, npc.MapID)
+
+	// 廣播攻擊動畫
+	for _, viewer := range nearby {
+		handler.SendAttackPacket(viewer.Session, player.CharID, npc.ID, damage, player.Heading)
+	}
+
+	// 命中時播放木人受傷動畫（Java: S_DoActionGFX action=2）
+	if damage > 0 {
+		for _, viewer := range nearby {
+			handler.SendActionGfx(viewer.Session, npc.ID, 2)
+		}
+	}
+
+	// 浮動傷害數字
+	if player.AttackView {
+		handler.SendDamageNumbers(player.Session, npc.ID, damage)
+	}
+
+	// 不扣血、不加仇恨、不檢查死亡 — 木人是不朽的
+	return nil
+}
+
 // isAttackableNpc 判斷 NPC 是否可被攻擊（會受到傷害）。
 // Java: L1MonsterInstance/L1GuardInstance 有完整 onAction（命中/傷害/commit），
 // L1MerchantInstance 等非戰鬥 NPC 只播放動畫。
+// 注意：L1Scarecrow 雖可攻擊但在 processMeleeAttack 中特殊處理，不經此判斷。
 func isAttackableNpc(impl string) bool {
 	switch impl {
 	case "L1Monster", "L1Guard", "L1Guardian", "L1Scarecrow":

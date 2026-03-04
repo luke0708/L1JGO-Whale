@@ -54,9 +54,12 @@ var useTypeMap = map[string]byte{
 	"belt":        37,
 	"earring":     40,
 	"fishing_rod": 42,
-	"rune":        43,
-	"rune2":       44,
-	"rune3":       45,
+	"runeword_left":   43, // 符石（左）
+	"runeword_right":  44, // 符石（右）
+	"runeword_middle": 45, // 符石（中）
+	"talisman":        48, // 六芒星護身符
+	"talisman2":       49, // 蒂蜜特的紋樣系列
+	"talisman3":       51, // 蒂蜜特的符文
 	"del":         46,
 	"normal":      51,
 	"ring":        57,

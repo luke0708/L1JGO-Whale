@@ -883,6 +883,29 @@ func (s *SkillSystem) executeBuffSkill(sess *net.Session, player *world.PlayerIn
 			handler.SendServerMessage(target.Session, 698) // "喉嚨灼熱，無法喝東西。"
 		}
 
+	case 112: // 破壞盔甲（黑暗妖精 debuff）
+		// Java: ARMOR_BREAK.java — 自定義機率系統，非標準 MR 判定
+		if target.CharID == player.CharID {
+			return // 不可對自己施放
+		}
+		if !s.calcArmorBreakProb(player, target) {
+			handler.SendServerMessage(sess, skillMsgCastFail)
+			return
+		}
+		// 移除舊的破壞盔甲效果（Java: killSkillEffectTimer + 重新 setSkillEffect）
+		if target.HasBuff(112) {
+			s.removeBuffAndRevert(target, 112)
+		}
+		// 套用 buff 效果（8 秒計時器）
+		s.applyBuffEffect(target, skill)
+		// 廣播技能音效 GFX 3400
+		handler.BroadcastToPlayers(nearby, handler.BuildSkillEffect(target.CharID, 3400))
+		// Buff 圖示（Java: S_PacketBoxIconAura(119, 8)）
+		handler.SendIconAura(target.Session, 119, 8)
+		// 成功訊息
+		handler.SendGlobalChat(sess, 9, "\\f2破壞盔甲 施放成功!")
+		return
+
 	case 153: // 魔法消除 — 解除 buff
 		s.cancelAllBuffs(target)
 	}
@@ -1139,6 +1162,23 @@ func (s *SkillSystem) executeNpcDebuffSkill(sess *net.Session, player *world.Pla
 		}
 		s.deps.Log.Info(fmt.Sprintf("疾病術  施法者=%s  NPC=%s  持續=%d秒", player.Name, npc.Name, dur))
 
+	case 112: // 破壞盔甲（NPC debuff）— Java: ARMOR_BREAK.java 對怪物/召喚/寵物
+		if !s.calcArmorBreakProbNpc(player, npc) {
+			handler.SendServerMessage(sess, skillMsgCastFail)
+			return
+		}
+		dur := skill.BuffDuration
+		if dur <= 0 {
+			dur = 8
+		}
+		// 移除舊效果 → 重新套用
+		npc.AddDebuff(112, dur*5) // 8 秒 = 40 ticks
+		if skill.CastGfx > 0 {
+			handler.BroadcastToPlayers(nearby, handler.BuildSkillEffect(npc.ID, skill.CastGfx))
+		}
+		handler.SendGlobalChat(sess, 9, "\\f2破壞盔甲 施放成功!")
+		s.deps.Log.Info(fmt.Sprintf("破壞盔甲  施法者=%s  NPC=%s  持續=%d秒", player.Name, npc.Name, dur))
+
 	case 44: // 魔法相消術 — 解除 NPC 所有 debuff + 狀態（Java: CANCELLATION.java:158-167）
 		// 清除所有 debuffs
 		for debuffID := range npc.ActiveDebuffs {
@@ -1207,6 +1247,65 @@ func (s *SkillSystem) checkPlayerMRResist(caster, target *world.PlayerInfo) bool
 	}
 	if prob > 90 {
 		prob = 90
+	}
+	return world.RandInt(100) < prob
+}
+
+// calcArmorBreakProb 破壞盔甲對玩家目標的機率判定。
+// Java: L1MagicPc.calcProbabilityMagic(ARMOR_BREAK) — 非標準 MR 判定，使用等級比較系統。
+// 攻擊者等級 > 防禦者 → 5%；相等 → 10%；攻擊者 < 防禦者 → 15%
+// 加上純智力加成（INT 25-44: +(INT-15)/10, INT 45+: +5）
+func (s *SkillSystem) calcArmorBreakProb(caster, target *world.PlayerInfo) bool {
+	atkLv := int(caster.Level)
+	defLv := int(target.Level)
+
+	var prob int
+	if atkLv > defLv {
+		prob = 5
+	} else if atkLv == defLv {
+		prob = 10
+	} else {
+		prob = 15
+	}
+
+	// Java: probability += magichit + INT 加成
+	baseInt := int(caster.Intel)
+	if baseInt >= 25 && baseInt <= 44 {
+		prob += (baseInt - 15) / 10
+	} else if baseInt >= 45 {
+		prob += 5
+	}
+
+	if prob < 1 {
+		prob = 1
+	}
+	return world.RandInt(100) < prob
+}
+
+// calcArmorBreakProbNpc 破壞盔甲對 NPC 目標的機率判定。
+// 與玩家版本相同的機率系統，但使用 NPC 等級。
+func (s *SkillSystem) calcArmorBreakProbNpc(caster *world.PlayerInfo, npc *world.NpcInfo) bool {
+	atkLv := int(caster.Level)
+	defLv := int(npc.Level)
+
+	var prob int
+	if atkLv > defLv {
+		prob = 5
+	} else if atkLv == defLv {
+		prob = 10
+	} else {
+		prob = 15
+	}
+
+	baseInt := int(caster.Intel)
+	if baseInt >= 25 && baseInt <= 44 {
+		prob += (baseInt - 15) / 10
+	} else if baseInt >= 45 {
+		prob += 5
+	}
+
+	if prob < 1 {
+		prob = 1
 	}
 	return world.RandInt(100) < prob
 }

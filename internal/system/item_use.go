@@ -172,6 +172,7 @@ func (s *ItemUseSystem) UseConsumable(sess *net.Session, player *world.PlayerInf
 				player.FoodFullTime = time.Now().Unix()
 			}
 			handler.SendFoodUpdate(sess, player.Food)
+			player.Dirty = true
 		}
 		consumed = true
 	} else {
@@ -581,15 +582,17 @@ func (s *ItemUseSystem) UseHomeScroll(sess *net.Session, player *world.PlayerInf
 	}
 	handler.SendWeightUpdate(sess, player)
 
-	// 出發特效（Java: S_SkillSound(169)）
+	// 出發特效 + 延遲 2 tick（400ms）傳送，讓客戶端播完特效動畫
+	// 特效在本 tick 末尾 flush 給客戶端，傳送在下一 tick 執行
 	sendEffectOnPlayer(sess, player.CharID, 169)
 	oldNearby := s.deps.World.GetNearbyPlayers(player.X, player.Y, player.MapID, sess.ID)
 	for _, viewer := range oldNearby {
 		sendEffectOnPlayer(viewer.Session, player.CharID, 169)
 	}
-
-	// 傳送到重生點
-	handler.TeleportPlayer(sess, player, int32(loc.X), int32(loc.Y), int16(loc.Map), 5, s.deps)
+	player.ScrollTPTick = 2
+	player.ScrollTPX = int32(loc.X)
+	player.ScrollTPY = int32(loc.Y)
+	player.ScrollTPMap = int16(loc.Map)
 
 	s.deps.Log.Info(fmt.Sprintf("回家卷軸  角色=%s  目標=(%d,%d) 地圖=%d", player.Name, loc.X, loc.Y, loc.Map))
 }
@@ -615,15 +618,16 @@ func (s *ItemUseSystem) UseFixedTeleportScroll(sess *net.Session, player *world.
 	}
 	handler.SendWeightUpdate(sess, player)
 
-	// 出發特效
+	// 出發特效 + 延遲 2 tick（400ms）傳送，讓客戶端播完特效動畫
 	sendEffectOnPlayer(sess, player.CharID, 169)
 	oldNearby := s.deps.World.GetNearbyPlayers(player.X, player.Y, player.MapID, sess.ID)
 	for _, viewer := range oldNearby {
 		sendEffectOnPlayer(viewer.Session, player.CharID, 169)
 	}
-
-	// 傳送到指定目的地
-	handler.TeleportPlayer(sess, player, itemInfo.LocX, itemInfo.LocY, itemInfo.LocMapID, 5, s.deps)
+	player.ScrollTPTick = 2
+	player.ScrollTPX = itemInfo.LocX
+	player.ScrollTPY = itemInfo.LocY
+	player.ScrollTPMap = itemInfo.LocMapID
 
 	s.deps.Log.Info(fmt.Sprintf("指定傳送  角色=%s  道具=%s  目標=(%d,%d) 地圖=%d",
 		player.Name, itemInfo.Name, itemInfo.LocX, itemInfo.LocY, itemInfo.LocMapID))

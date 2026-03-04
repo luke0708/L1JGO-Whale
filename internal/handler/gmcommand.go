@@ -10,6 +10,7 @@ import (
 
 	"github.com/l1jgo/server/internal/data"
 	"github.com/l1jgo/server/internal/net"
+	"github.com/l1jgo/server/internal/net/packet"
 	"github.com/l1jgo/server/internal/persist"
 	"github.com/l1jgo/server/internal/world"
 	"go.uber.org/zap"
@@ -102,6 +103,12 @@ func HandleGMCommand(sess *net.Session, player *world.PlayerInfo, text string, d
 		gmClearTest(sess, player, deps)
 	case "invisible":
 		gmInvisible(sess, player, deps)
+	case "slottest":
+		gmSlotTest(sess, player, args)
+	case "slotexpand":
+		gmSlotExpand(sess, args)
+	case "slotexpand2":
+		gmSlotExpand2(sess, args)
 	default:
 		gmMsg(sess, "\\f3未知的GM指令: ."+cmd+"  輸入 .help 查看指令列表")
 	}
@@ -1458,6 +1465,187 @@ func gmAllBuff(sess *net.Session, player *world.PlayerInfo, deps *Deps) {
 		}
 	}
 	gmMsgf(sess, "\\f=已套用 %d 個常用 buff", count)
+}
+
+// gmSlotTest 發送 S_EquipmentWindow 封包到指定的客戶端裝備欄索引。
+// 用於除錯「琮善」客戶端裝備視窗索引映射。
+// 用法: .slottest <itemID> <index>       — 將物品顯示在指定欄位
+//
+//	.slottest scan <itemID>            — 批次掃描 index 0-255，每個間隔 0.5 秒
+//	.slottest clear <index>            — 清除指定欄位
+//	.slottest clearall                 — 清除 index 0-255 全部
+func gmSlotTest(sess *net.Session, player *world.PlayerInfo, args []string) {
+	if len(args) < 1 {
+		gmMsg(sess, "用法: .slottest <itemID> <index>")
+		gmMsg(sess, "      .slottest scan <itemID>  — 批次掃描 0-255")
+		gmMsg(sess, "      .slottest clear <index>")
+		gmMsg(sess, "      .slottest clearall")
+		return
+	}
+
+	if args[0] == "clearall" {
+		for i := 0; i <= 255; i++ {
+			w := packet.NewWriterWithOpcode(packet.S_OPCODE_CHARSYNACK)
+			w.WriteC(0x42)
+			w.WriteD(int32(0))
+			w.WriteC(byte(i))
+			w.WriteC(0)
+			sess.Send(w.Bytes())
+		}
+		gmMsg(sess, "已清除 index 0-255 全部欄位")
+		return
+	}
+
+	if args[0] == "clear" {
+		if len(args) < 2 {
+			gmMsg(sess, "用法: .slottest clear <index>")
+			return
+		}
+		idx, err := strconv.Atoi(args[1])
+		if err != nil {
+			gmMsg(sess, "\\f3無效的 index")
+			return
+		}
+		w := packet.NewWriterWithOpcode(packet.S_OPCODE_CHARSYNACK)
+		w.WriteC(0x42)
+		w.WriteD(int32(0))
+		w.WriteC(byte(idx))
+		w.WriteC(0)
+		sess.Send(w.Bytes())
+		gmMsgf(sess, "已清除欄位 index=%d", idx)
+		return
+	}
+
+	if args[0] == "scan" {
+		if len(args) < 2 {
+			gmMsg(sess, "用法: .slottest scan <itemID>")
+			return
+		}
+		id, err := strconv.Atoi(args[1])
+		if err != nil {
+			gmMsg(sess, "\\f3無效的 itemID")
+			return
+		}
+		item := player.Inv.FindByObjectID(int32(id))
+		if item == nil {
+			item = player.Inv.FindByItemID(int32(id))
+		}
+		if item == nil {
+			gmMsgf(sess, "\\f3背包中找不到物品 ID=%d", id)
+			return
+		}
+		gmMsgf(sess, "開始掃描 %s (objID=%d) index 0-255...", item.Name, item.ObjectID)
+		for i := 0; i <= 255; i++ {
+			w := packet.NewWriterWithOpcode(packet.S_OPCODE_CHARSYNACK)
+			w.WriteC(0x42)
+			w.WriteD(item.ObjectID)
+			w.WriteC(byte(i))
+			w.WriteC(1)
+			sess.Send(w.Bytes())
+		}
+		gmMsg(sess, "掃描完成(0-255)。檢查裝備視窗，用 .slottest clearall 清除。")
+		return
+	}
+
+	if len(args) < 2 {
+		gmMsg(sess, "用法: .slottest <itemID> <index>")
+		return
+	}
+
+	id, err := strconv.Atoi(args[0])
+	if err != nil {
+		gmMsg(sess, "\\f3無效的 itemID")
+		return
+	}
+	idx, err := strconv.Atoi(args[1])
+	if err != nil {
+		gmMsg(sess, "\\f3無效的 index")
+		return
+	}
+
+	item := player.Inv.FindByObjectID(int32(id))
+	if item == nil {
+		item = player.Inv.FindByItemID(int32(id))
+	}
+	if item == nil {
+		gmMsgf(sess, "\\f3背包中找不到物品 ID=%d", id)
+		return
+	}
+
+	w := packet.NewWriterWithOpcode(packet.S_OPCODE_CHARSYNACK)
+	w.WriteC(0x42)
+	w.WriteD(item.ObjectID)
+	w.WriteC(byte(idx))
+	w.WriteC(1)
+	sess.Send(w.Bytes())
+	gmMsgf(sess, "已發送 %s (objID=%d) 到欄位 index=%d", item.Name, item.ObjectID, idx)
+}
+
+// gmSlotExpand 發送 S_CharReset(67) 擴充欄位封包，用於測試不同 subType/value。
+// 用法: .slotexpand <subType> <value>
+// 已知: subType=1 value=7→Ring3, value=15→Ring4（正常）
+//
+//	subType=2 value=1~3→符文（琮善客戶端可能異常）
+func gmSlotExpand(sess *net.Session, args []string) {
+	if len(args) < 2 {
+		gmMsg(sess, "用法: .slotexpand <subType> <value>")
+		gmMsg(sess, "  已知: 1,7=Ring3 | 1,15=Ring4 | 2,1~3=符文(可能異常)")
+		return
+	}
+	subType, err := strconv.Atoi(args[0])
+	if err != nil {
+		gmMsg(sess, "\\f3無效的 subType")
+		return
+	}
+	value, err := strconv.Atoi(args[1])
+	if err != nil {
+		gmMsg(sess, "\\f3無效的 value")
+		return
+	}
+
+	w := packet.NewWriterWithOpcode(packet.S_OPCODE_CHARSYNACK)
+	w.WriteC(67)           // sub-type: 擴充欄位
+	w.WriteD(int32(subType))
+	w.WriteC(byte(value))
+	for i := 0; i < 6; i++ {
+		w.WriteD(0)
+	}
+	w.WriteH(0)
+	sess.Send(w.Bytes())
+	gmMsgf(sess, "已發送 S_CharReset(67, %d, %d)", subType, value)
+}
+
+// gmSlotExpand2 使用 S_EquipmentWindow 第二建構函式的格式發送擴充封包。
+// 與 gmSlotExpand 的差異：value 用 writeD (4B) 而非 writeC (1B)，padding 也不同。
+// 用法: .slotexpand2 <type> <value>
+func gmSlotExpand2(sess *net.Session, args []string) {
+	if len(args) < 2 {
+		gmMsg(sess, "用法: .slotexpand2 <type> <value>")
+		gmMsg(sess, "  S_EquipmentWindow 格式: [67][D:type][D:value][D:0]*3[C:0]")
+		return
+	}
+	t, err := strconv.Atoi(args[0])
+	if err != nil {
+		gmMsg(sess, "\\f3無效的 type")
+		return
+	}
+	v, err := strconv.Atoi(args[1])
+	if err != nil {
+		gmMsg(sess, "\\f3無效的 value")
+		return
+	}
+
+	// 琮善 S_EquipmentWindow 第二建構函式格式
+	w := packet.NewWriterWithOpcode(packet.S_OPCODE_CHARSYNACK)
+	w.WriteC(0x43)        // sub-type 67 (0x43)
+	w.WriteD(int32(t))    // type: 2=符文
+	w.WriteD(int32(v))    // value: 3=三個欄位（writeD, 非 writeC）
+	w.WriteD(0)           // padding
+	w.WriteD(0)           // padding
+	w.WriteD(0)           // padding
+	w.WriteC(0)           // padding
+	sess.Send(w.Bytes())
+	gmMsgf(sess, "已發送 S_EquipmentWindow(0x43, %d, %d) — writeD 格式", t, v)
 }
 
 // gmInvisible 切換 GM 隱身狀態（不受 Cancellation 影響的純旗標隱身）。

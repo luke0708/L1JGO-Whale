@@ -213,7 +213,11 @@ func sendBuffIcon(target *world.PlayerInfo, skillID int32, durationSec uint16, d
 	case "dexup":
 		sendIconDexup(sess, durationSec, byte(target.Dex), icon.Param)
 	case "aura":
-		sendIconAura(sess, byte(skillID-1), durationSec)
+		iconID := byte(skillID - 1)
+		if icon.Param > 0 {
+			iconID = icon.Param // 自訂 iconID（如破壞盔甲 = 119）
+		}
+		sendIconAura(sess, iconID, durationSec)
 	case "invis":
 		sendInvisible(sess, target.CharID, durationSec > 0)
 	case "wisdom":

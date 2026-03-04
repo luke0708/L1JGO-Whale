@@ -89,19 +89,33 @@ func HandleWhoPledge(sess *net.Session, r *packet.Reader, deps *Deps) {
 	}
 }
 
-// HandlePledgeWatch 處理 C_PLEDGE_WATCH (opcode 78) — 血盟設定。
-// 封包：[C dataType][S content]
+// HandlePledgeWatch 處理 C_PLEDGE_WATCH (opcode 78) — 多用途封包。
+// Java: C_PledgeContent — dataType 決定用途：
+//   13 = 火神精煉（分解物品為結晶）
+//   14 = 火神合成（材料合成裝備）
+//   15 = 寫入血盟公告
+//   16 = 寫入個人備註
 func HandlePledgeWatch(sess *net.Session, r *packet.Reader, deps *Deps) {
 	dataType := r.ReadC()
-	content := r.ReadS()
 
 	player := deps.World.GetBySession(sess.ID)
 	if player == nil {
 		return
 	}
 
-	if deps.Clan != nil {
-		deps.Clan.UpdateSettings(sess, player, dataType, content)
+	switch dataType {
+	case 13:
+		// 火神精煉（type 48）— Java: C_PledgeContent case 13
+		handleRefineResolve(sess, r, player, deps)
+	case 14:
+		// 火神合成（type 49）— Java: C_PledgeContent case 14
+		handleRefineTransform(sess, r, player, deps)
+	case 15, 16:
+		// 血盟公告/個人備註 — 原有邏輯
+		content := r.ReadS()
+		if deps.Clan != nil {
+			deps.Clan.UpdateSettings(sess, player, dataType, content)
+		}
 	}
 }
 

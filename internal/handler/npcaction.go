@@ -30,8 +30,9 @@ func HandleNpcAction(sess *net.Session, r *packet.Reader, deps *Deps) {
 		return
 	}
 
-	// Clear pending craft state — any new NPC interaction overrides
+	// Clear pending state — any new NPC interaction overrides
 	player.PendingCraftAction = ""
+	player.FireSmithNpcObjID = 0
 
 	// --- Summon ring selection: numeric string response from "summonlist" dialog ---
 	// Java: L1ActionPc.java checks cmd.matches("[0-9]+") && isSummonMonster().
@@ -139,6 +140,43 @@ func HandleNpcAction(sess *net.Session, r *packet.Reader, deps *Deps) {
 	case "enca":
 		handleNpcArmorEnchant(sess, player, deps)
 
+	// ---------- 火神精煉系統 ----------
+	// type 48/49 拖放 UI 在 3.80C 無法使用。
+
+	case "itemresolve":
+		// 火神精煉（商店模式）— 和 request firecrystal 相同機制
+		sendFireSmithSellList(sess, player, npc, deps)
+	case "itemtransform":
+		// 火神製作 — ItemBlend 模板瀏覽配方 → confirm craft 開啟交易視窗 → 確認製作
+		sendCraftItemBlend(sess, player, npc, deps, 0)
+	case "request firecrystal":
+		// 火神熔煉（商店賣出格式）— Java: Npc_FireSmith → S_ShopBuyListFireSmith
+		sendFireSmithSellList(sess, player, npc, deps)
+
+	// ---------- 火神工匠系統（Java: L1Blend / 道具製造系統DB化） ----------
+
+	case "request craft":
+		handleRequestCraft(sess, player, npc, deps)
+	case "confirm craft":
+		handleConfirmCraft(sess, player, npc, deps)
+	case "cancel craft":
+		// 循環瀏覽下一個配方（ItemBlend 模板用）
+		if player.PendingCraftNpcID != 0 && deps.ItemMaking != nil {
+			nextIdx := player.PendingCraftIndex + 1
+			recipes := deps.ItemMaking.GetByNpcID(player.PendingCraftNpcID)
+			if nextIdx < len(recipes) {
+				sendCraftItemBlend(sess, player, npc, deps, nextIdx)
+			} else {
+				// 已到最後一個配方，回到第一個
+				sendCraftItemBlend(sess, player, npc, deps, 0)
+			}
+		} else {
+			player.PendingCraftKey = ""
+			player.PendingCraftNpcID = 0
+			player.PendingCraftIndex = 0
+			player.CraftTradeTick = 0
+		}
+
 	// "ent" 動作 — 多個 NPC 共用，依 NPC ID 分派
 	// Java: C_NPCAction.java 對 "ent" 按 npcId 做 if/else
 	case "ent":
@@ -154,6 +192,12 @@ func HandleNpcAction(sess *net.Session, r *packet.Reader, deps *Deps) {
 		// Do nothing — dialog closes
 
 	default:
+		// ---------- NPC 專屬動作（依 NPC ID 分派） ----------
+		if npc.NpcID == 81445 { // 欄位開放專家 史奈普
+			handleSlotNpc(sess, player, objID, lowerAction, deps)
+			return
+		}
+
 		// Check teleport destinations (handles "teleport xxx" and other
 		// action names like "Strange21", "goto battle ring", "a"/"b"/etc.)
 		if deps.Teleports.Get(npc.NpcID, action) != nil {
@@ -167,8 +211,14 @@ func HandleNpcAction(sess *net.Session, r *packet.Reader, deps *Deps) {
 			return
 		}
 
-		// Check if this is a crafting recipe
+		// 火神系統配方（NPC 專屬，action = A-Z, a1-a17）
+		// Java: craftkey = npcid + action → L1BlendTable.getTemplate(craftkey) → ShowCraftHtml
 		if deps.ItemMaking != nil && deps.Craft != nil {
+			if recipe := deps.ItemMaking.GetByNpcAction(npc.NpcID, action); recipe != nil {
+				handleCraftSelect(sess, player, npc, recipe, deps)
+				return
+			}
+			// 簡易配方（無 NPC 綁定）：直接執行
 			if recipe := deps.ItemMaking.Get(action); recipe != nil {
 				deps.Craft.HandleCraftEntry(sess, player, npc, recipe, action)
 				return
@@ -385,7 +435,16 @@ func handleTeleport(sess *net.Session, player *world.PlayerInfo, npcID int32, ac
 		}
 	}
 
-	teleportPlayer(sess, player, dest.X, dest.Y, dest.MapID, dest.Heading, deps)
+	// 出發特效 + 延遲 2 tick（400ms）傳送，讓客戶端播完特效動畫
+	SendEffectOnPlayer(sess, player.CharID, 169)
+	nearby := deps.World.GetNearbyPlayers(player.X, player.Y, player.MapID, sess.ID)
+	for _, viewer := range nearby {
+		SendEffectOnPlayer(viewer.Session, player.CharID, 169)
+	}
+	player.ScrollTPTick = 2
+	player.ScrollTPX = dest.X
+	player.ScrollTPY = dest.Y
+	player.ScrollTPMap = dest.MapID
 
 	deps.Log.Info(fmt.Sprintf("玩家傳送  角色=%s  動作=%s  x=%d  y=%d  地圖=%d  花費=%d", player.Name, action, dest.X, dest.Y, dest.MapID, dest.Price))
 }
@@ -902,6 +961,403 @@ func HandleCraftAmount(sess *net.Session, r *packet.Reader, player *world.Player
 }
 
 // ========================================================================
+//  火神工匠系統 — Java: L1BlendTable / L1Blend / Npc_CraftDesk
+// ========================================================================
+
+// sendCraftItemBlend 使用 ItemBlend 模板顯示指定配方的詳細資訊。
+// 3.80C 客戶端的 type 48/49 拖放介面無法使用，且不支援 inline HTML（htmlID 用於讀取本地對話檔）。
+// 改用客戶端已有的 ItemBlend 模板（3.80C 確認可用）呈現配方。
+// 玩家點 "confirm craft" → 開啟交易視窗確認；"cancel craft" → 顯示下一個配方。
+//
+// Java ItemBlend 模板資料格式：
+//
+//	data[0] = 成品名稱
+//	data[1] = 額外獎勵資訊（空字串 = 無）
+//	data[2] = 等級限制（" 無限制 " 或 " XX級以上。 "）
+//	data[3] = 職業限制（" 所有職業" 或具體職業名）
+//	data[4] = 成功機率（" XX %" 或空字串 = 100%）
+//	data[5] = 增加機率道具資訊（空字串）
+//	data[6] = 替代材料資訊（空字串）
+//	data[7+] = 材料條目（"材料名 (數量) 個"）
+func sendCraftItemBlend(sess *net.Session, player *world.PlayerInfo, npc *world.NpcInfo, deps *Deps, index int) {
+	if deps.ItemMaking == nil {
+		sendGlobalChat(sess, 9, "\\f3製作系統尚未啟用。")
+		return
+	}
+	recipes := deps.ItemMaking.GetByNpcID(npc.NpcID)
+	if len(recipes) == 0 {
+		sendGlobalChat(sess, 9, "\\f3此 NPC 沒有可用的配方。")
+		return
+	}
+
+	// 循環索引
+	if index < 0 || index >= len(recipes) {
+		index = 0
+	}
+	recipe := recipes[index]
+
+	// 儲存瀏覽狀態
+	player.PendingCraftKey = recipe.Action
+	player.PendingCraftNpcID = npc.NpcID
+	player.PendingCraftIndex = index
+
+	// 組裝 data[0]: 成品名稱
+	productName := recipe.Note
+	if len(recipe.Items) > 0 {
+		out := recipe.Items[0]
+		if info := deps.Items.Get(out.ItemID); info != nil {
+			productName = info.Name
+			if out.EnchantLvl > 0 {
+				productName = fmt.Sprintf("+%d %s", out.EnchantLvl, productName)
+			}
+			if out.Amount > 1 {
+				productName = fmt.Sprintf("%s (%d)", productName, out.Amount)
+			}
+		}
+	}
+
+	// data[1]: 額外獎勵
+	bonusInfo := ""
+	if recipe.BonusItemID > 0 {
+		if info := deps.Items.Get(recipe.BonusItemID); info != nil {
+			bonusInfo = fmt.Sprintf("製造成功時額外獲得: %s", info.Name)
+			if recipe.BonusItemCount > 1 {
+				bonusInfo += fmt.Sprintf(" (%d)", recipe.BonusItemCount)
+			}
+		}
+	}
+
+	// data[2]: 等級限制
+	levelInfo := " 無限制 "
+	if recipe.RequiredLevel > 0 {
+		levelInfo = fmt.Sprintf(" %d級以上。 ", recipe.RequiredLevel)
+	}
+
+	// data[3]: 職業限制
+	classInfo := " 所有職業"
+	if recipe.RequiredClass > 0 {
+		if name := classIDToName(recipe.RequiredClass); name != "" {
+			classInfo = " " + name
+		}
+	}
+
+	// data[4]: 成功機率（未設定或 0 視為 100%）
+	rate := recipe.SuccessRate
+	if rate <= 0 {
+		rate = 100
+	}
+	rateInfo := fmt.Sprintf(" %d %%", rate)
+
+	// data[5], data[6]: 空字串（增加機率道具、替代材料）
+	// data[7+]: 材料條目
+	matCount := len(recipe.Materials)
+	msgs := make([]string, 7+matCount)
+	msgs[0] = productName
+	msgs[1] = bonusInfo
+	msgs[2] = levelInfo
+	msgs[3] = classInfo
+	msgs[4] = rateInfo
+	msgs[5] = ""
+	msgs[6] = fmt.Sprintf("(%d/%d)", index+1, len(recipes))
+
+	for i, mat := range recipe.Materials {
+		matName := fmt.Sprintf("item#%d", mat.ItemID)
+		if info := deps.Items.Get(mat.ItemID); info != nil {
+			matName = info.Name
+		}
+		if mat.EnchantLvl > 0 {
+			matName = fmt.Sprintf("+%d %s", mat.EnchantLvl, matName)
+		}
+		msgs[7+i] = fmt.Sprintf("%s (%d) 個", matName, mat.Amount)
+	}
+
+	sendHypertextWithData(sess, npc.ID, "ItemBlend", msgs)
+}
+
+// handleRequestCraft 處理 "request craft" — 顯示配方清單。
+// 815 版：smithitem 有 "request craft" 按鈕 → 送 smithitem1（41 個配方名稱）。
+// 3.80C：smithitem 直接顯示配方清單（desc-c.tbl），不一定有 "request craft" 按鈕。
+// 保留此函式作為相容性備用。
+func handleRequestCraft(sess *net.Session, player *world.PlayerInfo, npc *world.NpcInfo, deps *Deps) {
+	if deps.ItemMaking == nil {
+		return
+	}
+	recipes := deps.ItemMaking.GetByNpcID(npc.NpcID)
+	if len(recipes) == 0 {
+		return
+	}
+
+	const smithitem1Slots = 41 // Java: msg0~msg40，固定 41 格
+	msgs := make([]string, smithitem1Slots)
+	for i := 0; i < smithitem1Slots && i < len(recipes); i++ {
+		msgs[i] = recipes[i].Note
+	}
+
+	sendHypertextWithData(sess, npc.ID, "smithitem1", msgs)
+}
+
+// handleCraftSelect 處理配方選擇 — 開啟交易視窗顯示成品與材料。
+// 交易視窗佈局：
+//   - 上方（panelType=0, 玩家側）：成品預覽
+//   - 下方（panelType=1, 對方側）：需要的材料
+//
+// 3.80C 客戶端在同一 tick 收到 S_Trade + S_TradeAddItem 時，交易視窗尚未初始化完成，
+// 導致物品不顯示。因此 S_Trade 立即發送，S_TradeAddItem 延遲 1 tick 由 CraftTradeSystem 發送。
+// 玩家按確認（C_ACCEPT_XCHG）→ handleCraftTradeConfirm 執行製作。
+func handleCraftSelect(sess *net.Session, player *world.PlayerInfo, npc *world.NpcInfo, recipe *data.CraftRecipe, deps *Deps) {
+	// 儲存選中的配方，交易確認時使用
+	player.PendingCraftKey = recipe.Action
+	player.PendingCraftNpcID = npc.NpcID
+
+	// 開啟交易視窗 — 對方名稱（下方標題）顯示「需要的材料」
+	sendTradeOpen(sess, "需要的材料")
+
+	// 延遲 1 tick 發送物品（等待客戶端初始化交易視窗）
+	player.CraftTradeTick = 1
+}
+
+// SendCraftTradeItems 延遲發送製作交易視窗的物品（由 CraftTradeSystem 呼叫）。
+// 根據 PendingCraftKey/NpcID 查找配方，發送成品與材料。
+// 物品不存在於 YAML 時使用 fallback 值（名稱顯示 "item#ID"，GfxID 使用 InvGfx 或預設 24）。
+func SendCraftTradeItems(sess *net.Session, player *world.PlayerInfo, deps *Deps) {
+	if player.PendingCraftKey == "" || deps.ItemMaking == nil {
+		return
+	}
+
+	recipe := deps.ItemMaking.GetByNpcAction(player.PendingCraftNpcID, player.PendingCraftKey)
+	if recipe == nil {
+		return
+	}
+
+	// 上方（panelType=0, 玩家側）：成品預覽
+	// Java S_TradeAddItem 使用 item.getItem().getGfxId() = 地面圖示（GrdGfx）
+	for _, out := range recipe.Items {
+		gfx, viewName, bless := craftTradeItemInfo(out.ItemID, out.Amount, out.EnchantLvl, deps)
+		sendTradeAddItem(sess, gfx, viewName, bless, 0)
+	}
+
+	// 下方（panelType=1, 對方側）：需要的材料
+	for _, mat := range recipe.Materials {
+		gfx, viewName, bless := craftTradeItemInfo(mat.ItemID, mat.Amount, mat.EnchantLvl, deps)
+		sendTradeAddItem(sess, gfx, viewName, bless, 1)
+	}
+}
+
+// craftTradeItemInfo 取得物品的交易視窗顯示資訊。
+// 物品存在於 YAML → 使用真實 GrdGfx、名稱、bless。
+// 物品不存在 → 使用 fallback GfxID 24（常見物品圖示）、"item#ID" 名稱、bless=0。
+func craftTradeItemInfo(itemID, amount, enchantLvl int32, deps *Deps) (gfx uint16, viewName string, bless byte) {
+	info := deps.Items.Get(itemID)
+	if info != nil {
+		gfx = uint16(info.InvGfx)
+		viewName = info.Name
+		bless = byte(info.Bless)
+	} else {
+		// 物品未定義時的 fallback：GfxID 24（寶石圖示），名稱用 item#ID
+		gfx = 24
+		viewName = fmt.Sprintf("item#%d", itemID)
+		bless = 0
+	}
+	if enchantLvl > 0 {
+		viewName = fmt.Sprintf("+%d %s", enchantLvl, viewName)
+	}
+	if amount > 1 {
+		viewName = fmt.Sprintf("%s (%d)", viewName, amount)
+	}
+	return
+}
+
+// craftItemDisplayName 組裝成品顯示名稱（模擬 Java getLogName()）
+func craftItemDisplayName(itemID, amount, enchantLvl int32, deps *Deps) string {
+	name := fmt.Sprintf("item#%d", itemID)
+	if info := deps.Items.Get(itemID); info != nil {
+		name = info.Name
+	}
+	if enchantLvl > 0 {
+		name = fmt.Sprintf("+%d %s", enchantLvl, name)
+	}
+	if amount > 1 {
+		name += fmt.Sprintf(" (%d)", amount)
+	}
+	return name
+}
+
+// handleConfirmCraft 處理 "confirm craft" — 開啟交易視窗預覽成品與材料。
+// 直接送 S_Trade 開啟視窗，延遲 1 tick 發 S_TradeAddItem。
+func handleConfirmCraft(sess *net.Session, player *world.PlayerInfo, npc *world.NpcInfo, deps *Deps) {
+	if player.PendingCraftKey == "" || deps.ItemMaking == nil || deps.Craft == nil {
+		return
+	}
+
+	// 驗證 NPC 一致性
+	if player.PendingCraftNpcID != npc.NpcID {
+		player.PendingCraftKey = ""
+		player.PendingCraftNpcID = 0
+		player.PendingCraftIndex = 0
+		player.CraftTradeTick = 0
+		return
+	}
+
+	recipe := deps.ItemMaking.GetByNpcAction(player.PendingCraftNpcID, player.PendingCraftKey)
+	if recipe == nil {
+		player.PendingCraftKey = ""
+		player.PendingCraftNpcID = 0
+		player.PendingCraftIndex = 0
+		player.CraftTradeTick = 0
+		return
+	}
+
+	// 開啟交易視窗 + 延遲 1 tick 發送物品
+	handleCraftSelect(sess, player, npc, recipe, deps)
+}
+
+// classIDToName 將職業 ID 轉換為顯示名稱。
+func classIDToName(classID int32) string {
+	switch classID {
+	case 1:
+		return "王族"
+	case 2:
+		return "騎士"
+	case 3:
+		return "法師"
+	case 4:
+		return "妖精"
+	case 5:
+		return "黑暗妖精"
+	case 6:
+		return "龍騎士"
+	case 7:
+		return "幻術師"
+	case 8:
+		return "戰士"
+	default:
+		return ""
+	}
+}
+
+// sendRefineUI 發送火神精煉/合成 UI 封包。
+// sendRefineUI 發送火神精煉/合成 UI 封包。
+// Java S_Refine.java（380火神煉化）：opcode 64 + type + npcObjID + 尾碼
+// Java S_EquipmentWindow（815版）：同格式但尾碼不同
+// 客戶端回應走 C_PledgeContent (opcode 78) type=13（精煉）或 type=14（合成）。
+// type=48: 精煉（itemresolve），type=49: 合成（itemtransform）
+//
+// 尾碼測試記錄：
+// - 0x95, 0x19（S_EquipmentWindow 815）：視窗開啟，無法拖裝備
+// - 0xE3, 0x92（S_Refine 380）：視窗開啟，無法拖裝備
+func sendRefineUI(sess *net.Session, npcObjID int32, refineType byte) {
+	w := packet.NewWriterWithOpcode(packet.S_OPCODE_CHARSYNACK)
+	w.WriteC(refineType) // 48=精煉, 49=合成
+	w.WriteD(npcObjID)   // NPC object ID
+	w.WriteC(0)          // 尾碼（3.80C 正確值待確認）
+	w.WriteC(0)
+	sess.Send(w.Bytes())
+}
+
+// sendFireSmithSellList 發送火神精煉介面（分解物品換結晶）。
+// Java: S_ShopBuyListFireSmith — 使用 S_OPCODE_SHOP_SELL_LIST（opcode 65）。
+// 格式與商店賣出列表完全相同，「價格」欄位填入結晶數量。
+// 客戶端回傳 C_Result type=1（賣出），伺服器攔截後給予結晶而非金幣。
+func sendFireSmithSellList(sess *net.Session, player *world.PlayerInfo, npc *world.NpcInfo, deps *Deps) {
+	if deps.FireCrystals == nil {
+		sendGlobalChat(sess, 9, "\\f3火神精煉系統尚未啟用。")
+		return
+	}
+
+	// 排除的物品 ID（Java: S_ShopBuyListFireSmith.assessItems）
+	excludeItems := map[int32]bool{
+		40308: true, // 金幣
+		41246: true, // 魔法結晶體
+		44070: true, // 天寶
+		40314: true, // 項圈
+		40316: true, // 高等寵物項圈
+		83000: true, // 貝利
+		83022: true, // 黃金貝利
+		80033: true, // 推廣銀幣
+	}
+
+	type assessedItem struct {
+		objectID     int32
+		crystalCount int32
+	}
+	var items []assessedItem
+
+	for _, invItem := range player.Inv.Items {
+		// 跳過排除物品
+		if excludeItems[invItem.ItemID] {
+			continue
+		}
+		// 跳過已裝備物品
+		if invItem.Equipped {
+			continue
+		}
+
+		itemInfo := deps.Items.Get(invItem.ItemID)
+		if itemInfo == nil {
+			continue
+		}
+		// 只處理武器和防具（Java: type2 != 0）
+		if itemInfo.Category == data.CategoryEtcItem {
+			continue
+		}
+
+		// 計算基礎 item ID（去除祝福/詛咒偏移）
+		// Java: bless==0 → itemId-100000; bless==2 → itemId-200000
+		lookupID := invItem.ItemID
+		if invItem.Bless == 0 { // 祝福狀態
+			candidateID := invItem.ItemID - 100000
+			if candidateInfo := deps.Items.Get(candidateID); candidateInfo != nil {
+				if candidateInfo.Name == itemInfo.Name {
+					lookupID = candidateID
+				}
+			}
+		} else if invItem.Bless == 2 { // 詛咒狀態
+			candidateID := invItem.ItemID - 200000
+			if candidateInfo := deps.Items.Get(candidateID); candidateInfo != nil {
+				if candidateInfo.Name == itemInfo.Name {
+					lookupID = candidateID
+				}
+			}
+		}
+
+		entry := deps.FireCrystals.Get(lookupID)
+		if entry == nil {
+			continue
+		}
+
+		crystalCount := entry.GetCrystalCount(int(invItem.EnchantLvl), int(itemInfo.Category), itemInfo.SafeEnchant)
+		if crystalCount > 0 {
+			items = append(items, assessedItem{objectID: invItem.ObjectID, crystalCount: crystalCount})
+		}
+	}
+
+	if len(items) == 0 {
+		// 無可精煉物品（Java: S_NPCTalkReturn "smithitem3"）
+		sendHypertext(sess, npc.ID, "smithitem3")
+		return
+	}
+
+	// 標記玩家正在使用火神精煉（用於 C_Result 攔截）
+	player.FireSmithNpcObjID = npc.ID
+
+	w := packet.NewWriterWithOpcode(packet.S_OPCODE_SHOP_SELL_LIST)
+	w.WriteD(npc.ID)
+	w.WriteH(uint16(len(items)))
+	for _, it := range items {
+		w.WriteD(it.objectID)     // 物品 object ID
+		w.WriteD(it.crystalCount) // 結晶數量（顯示為「價格」）
+	}
+	w.WriteH(0x0007) // 幣種: 7=金幣（客戶端顯示用）
+	sess.Send(w.Bytes())
+}
+
+// SendCloseList 關閉 NPC 對話視窗。
+// Java: S_CloseList → opcode 39 + writeD(objID) + writeS("")
+func SendCloseList(sess *net.Session, objID int32) {
+	sendHypertext(sess, objID, "")
+}
+
+// ========================================================================
 //  Summon control — Java: L1ActionSummon.action()
 // ========================================================================
 
@@ -949,4 +1405,40 @@ func isNumericString(s string) bool {
 		}
 	}
 	return true
+}
+
+// ---------- 欄位開放專家 史奈普（NPC 81445）----------
+// Java: C_NPCAction.java — npcId == 81445
+// 動作 A = Lv76 戒指欄位（任務 79）
+// 動作 B = Lv81 戒指欄位（任務 80）
+// 動作 C = Lv85 護符欄位（任務 82，自訂功能）
+func handleSlotNpc(sess *net.Session, player *world.PlayerInfo, npcObjID int32, action string, deps *Deps) {
+	switch action {
+	case "a": // Lv76 戒指欄（第3個戒指欄位）
+		if player.IsQuestDone(79) {
+			SendServerMessage(sess, 3254) // 已經開通
+			return
+		}
+		player.PendingYesNoType = 3312
+		player.PendingYesNoData = 76
+		sendYesNoDialog(sess, 3312)
+
+	case "b": // Lv81 戒指欄（第4個戒指欄位）
+		if player.IsQuestDone(80) {
+			SendServerMessage(sess, 3254) // 已經開通
+			return
+		}
+		player.PendingYesNoType = 3313
+		player.PendingYesNoData = 81
+		sendYesNoDialog(sess, 3313)
+
+	case "c": // Lv85 護符欄（自訂擴充欄位）
+		if player.IsQuestDone(82) {
+			SendServerMessage(sess, 3254) // 已經開通
+			return
+		}
+		player.PendingYesNoType = 3590
+		player.PendingYesNoData = 85
+		sendYesNoDialog(sess, 3590)
+	}
 }

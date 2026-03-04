@@ -82,6 +82,7 @@ BUFF_DEFS = {
     [105] = { dmg_mod = 4 },                                                  -- Double Break
     [106] = { dodge = 5 },                                                    -- Shadow Dodge
     [107] = { dmg_mod = 5 },                                                  -- Shadow Fang
+    [112] = {},                                                               -- Armor Break（破壞盔甲，旗標型 debuff：傷害倍率在 Go 戰鬥系統中處理）
 
     -- ==================== Knight/Royal Skills (87-91, 109-118) ====================
 

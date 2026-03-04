@@ -1,6 +1,7 @@
 package packet
 
 import (
+	"encoding/hex"
 	"fmt"
 
 	"go.uber.org/zap"
@@ -79,10 +80,16 @@ func (reg *Registry) Dispatch(sess any, state SessionState, data []byte) error {
 		return fmt.Errorf("empty packet")
 	}
 	opcode := data[0]
+	// 臨時 debug：印出封包原始位元組（前 32 bytes），用於分析客戶端回應
+	hexLen := len(data)
+	if hexLen > 32 {
+		hexLen = 32
+	}
 	reg.log.Debug("收到封包",
 		zap.Uint8("opcode", opcode),
 		zap.Int("size", len(data)),
 		zap.String("state", state.String()),
+		zap.String("hex", hex.EncodeToString(data[:hexLen])),
 	)
 
 	entry, ok := reg.handlers[opcode]

@@ -88,6 +88,10 @@ speed_threshold = 15.0         # 最大移動速度（格/秒，正常約5，加
 teleport_validation = true     # 驗證傳送目的地
 duplicate_item_check = true    # 偵測複製物品
 
+# ── 除錯設定 ────────────────────────────────────────────────
+[debug]
+show_npc_id = true             # NPC 名稱旁顯示 NPC ID 和 GFX ID（開發用）
+
 # ── 日誌設定 ────────────────────────────────────────────────
 [logging]
 level = "debug"                 # 日誌等級：debug, info, warn, error
@@ -97,4 +101,4 @@ format = "console"             # 輸出格式："json" 或 "console"
 [rate_limit]
 enabled = true                 # 啟用流量限制
 login_attempts_per_minute = 10 # 每分鐘最大登入嘗試次數
-packets_per_second = 60        # 每秒最大封包數
+packets_per_second = 120       # 每秒最大封包數

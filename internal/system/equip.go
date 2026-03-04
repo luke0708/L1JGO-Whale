@@ -167,12 +167,16 @@ func (s *EquipSystem) EquipArmor(sess *net.Session, player *world.PlayerInfo, in
 		}
 	}
 
-	// 戒指：選擇空欄位（Ring1 或 Ring2）
+	// 戒指：依序找空欄位（Ring1 → Ring2 → Ring3(需任務79) → Ring4(需任務80)）
 	if slot == world.SlotRing1 {
 		if player.Equip.Get(world.SlotRing1) == nil {
 			slot = world.SlotRing1
 		} else if player.Equip.Get(world.SlotRing2) == nil {
 			slot = world.SlotRing2
+		} else if player.Equip.Get(world.SlotRing3) == nil && player.IsQuestDone(79) {
+			slot = world.SlotRing3
+		} else if player.Equip.Get(world.SlotRing4) == nil && player.IsQuestDone(80) {
+			slot = world.SlotRing4
 		} else {
 			s.UnequipSlot(sess, player, world.SlotRing1)
 			slot = world.SlotRing1

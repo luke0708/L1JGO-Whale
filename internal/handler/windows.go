@@ -38,6 +38,9 @@ func HandleWindows(sess *net.Session, r *packet.Reader, deps *Deps) {
 		// Java: C_Windows.java case 6 — readD(itemObjID) + readD(selectDoor) → 消耗鑰匙 + 生成門衛
 		HandleDragonDoorSelect(sess, player, r, deps)
 
+	case 13:
+		// 客戶端點擊 NPC 時附帶發送，Java 也無處理，靜默忽略
+
 	default:
 		deps.Log.Debug("C_Windows 未處理的 type",
 			zap.Uint8("type", windowType),

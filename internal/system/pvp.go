@@ -83,6 +83,11 @@ func (s *PvPSystem) HandlePvPAttack(attacker, target *world.PlayerInfo) {
 		damage = 0
 	}
 
+	// 破壞盔甲傷害倍率（Java: L1AttackPc — 近戰非弓攻擊 damage *= 1.58）
+	if damage > 0 && target.HasBuff(112) {
+		damage = int32(float64(damage) * 1.58)
+	}
+
 	nearby := s.deps.World.GetNearbyPlayersAt(target.X, target.Y, target.MapID)
 
 	// 反擊屏障（skill 91）：PvP 近戰機率反彈（Java: L1AttackPc.calcCounterBarrierDamage）

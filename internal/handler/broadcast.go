@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"sync/atomic"
 	"time"
 
@@ -11,6 +12,13 @@ import (
 
 // arrowSeqNum is a global sequential number for arrow projectile packets (matches Java AtomicInteger).
 var arrowSeqNum atomic.Int32
+
+// showNpcID 控制 NPC 名稱是否附加 NPC ID 和 GFX ID（開發除錯用）。
+// 啟動時由 SetShowNpcID 設定，遊戲迴圈單線程讀取，無需原子操作。
+var showNpcID bool
+
+// SetShowNpcID 設定 NPC 名稱是否顯示 ID 資訊（啟動時呼叫一次）。
+func SetShowNpcID(enabled bool) { showNpcID = enabled }
 
 // sendOwnCharPackPlayer sends S_PUT_OBJECT (opcode 87) for the player's OWN character.
 // Uses S_OwnCharPack format (different trailing bytes from S_OtherCharPacks).
@@ -179,7 +187,13 @@ func SendNpcPack(viewer *net.Session, npc *world.NpcInfo) {
 	w.WriteC(0)                   // move speed
 	w.WriteD(npc.Exp)             // experience reward
 	w.WriteH(0)                   // lawful
-	w.WriteS(npc.NameID)
+
+	// 除錯模式：名稱後附加 NpcID:GfxID
+	if showNpcID {
+		w.WriteS(fmt.Sprintf("%s#%d:%d", npc.NameID, npc.NpcID, npc.GfxID))
+	} else {
+		w.WriteS(npc.NameID)
+	}
 	w.WriteS("")                  // title
 	w.WriteC(0x00)                // ext status: NO PC flag
 	w.WriteD(0)                   // reserved
@@ -210,7 +224,12 @@ func SendNpcDeadPack(viewer *net.Session, npc *world.NpcInfo) {
 	w.WriteC(0)                   // move speed
 	w.WriteD(npc.Exp)             // exp（Java: 死亡 NPC 仍發 exp）
 	w.WriteH(0)                   // lawful
-	w.WriteS(npc.NameID)
+
+	if showNpcID {
+		w.WriteS(fmt.Sprintf("%s#%d:%d", npc.NameID, npc.NpcID, npc.GfxID))
+	} else {
+		w.WriteS(npc.NameID)
+	}
 	w.WriteS("")                  // title
 	w.WriteC(0x00)                // ext status
 	w.WriteD(0)                   // reserved
@@ -696,6 +715,14 @@ func SendAttackPacket(viewer *net.Session, attackerID, targetID, damage int32, h
 // SendUseAttackSkill 廣播技能攻擊封包。
 func SendUseAttackSkill(viewer *net.Session, casterID, targetID int32, damage int16, heading int16, gfxID int32, useType byte, cx, cy, tx, ty int32) {
 	sendUseAttackSkill(viewer, casterID, targetID, damage, heading, gfxID, useType, cx, cy, tx, ty)
+}
+
+// SendEffectOnPlayer 發送 S_SkillSoundGFX（opcode 55）特效封包。
+func SendEffectOnPlayer(sess *net.Session, charID int32, gfxID int32) {
+	w := packet.NewWriterWithOpcode(packet.S_OPCODE_EFFECT)
+	w.WriteD(charID)
+	w.WriteH(uint16(gfxID))
+	sess.Send(w.Bytes())
 }
 
 // SendNpcChatPacket 發送 NPC 對話封包（S_SAY opcode 81）。供 system 套件使用。

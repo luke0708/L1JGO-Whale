@@ -701,6 +701,11 @@ func SendHpUpdate(sess *net.Session, player *world.PlayerInfo) {
 	sendHpUpdate(sess, player)
 }
 
+// SendMpUpdate 發送 MP 更新封包給客戶端。
+func SendMpUpdate(sess *net.Session, player *world.PlayerInfo) {
+	sendMpUpdate(sess, player)
+}
+
 func sendMpUpdate(sess *net.Session, player *world.PlayerInfo) {
 	w := packet.NewWriterWithOpcode(packet.S_OPCODE_MANA_POINT)
 	w.WriteH(uint16(player.MP))

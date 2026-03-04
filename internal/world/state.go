@@ -109,6 +109,12 @@ type PlayerInfo struct {
 	TeleportHeading int16
 	HasTeleport     bool // true when a teleport is prepared and waiting for C_TELEPORT confirmation
 
+	// 卷軸延遲傳送：特效發出後延遲 1 tick 再執行（模擬 Java Thread.sleep(196ms)）
+	ScrollTPTick int   // >0 = 剩餘等待 tick 數；每 tick -1，到 0 時執行傳送
+	ScrollTPX    int32
+	ScrollTPY    int32
+	ScrollTPMap  int16
+
 	// Teleport bookmarks
 	Bookmarks []Bookmark
 
@@ -169,6 +175,21 @@ type PlayerInfo struct {
 	// interpreted as C_Amount (crafting batch response) instead of monlist (polymorph).
 	PendingCraftAction string
 
+	// 火神工匠系統：玩家選擇配方後，儲存當前選中的配方 action key 和 NPC 物件 ID。
+	// "confirm craft" 時用這些資訊找到對應配方。
+	PendingCraftKey   string // 當前選中的配方 action key（如 "A", "B"... "a1"...）
+	PendingCraftNpcID int32  // 當前互動的 NPC ID（非物件 ID）
+	PendingCraftIndex int    // ItemBlend 配方瀏覽的目前索引（cancel craft 循環用）
+
+	// 交易視窗延遲發送：S_Trade 先開視窗，延遲 1 tick 再發 S_TradeAddItem。
+	// 3.80C 客戶端在同一 tick 收到 S_Trade + S_TradeAddItem 時，交易視窗尚未初始化完成，
+	// 導致物品不顯示。正常交易中物品是玩家手動拖入的，自然有延遲。
+	CraftTradeTick int // >0 = 剩餘等待 tick 數；每 tick -1，到 0 時發送交易物品
+
+	// 火神精煉：當玩家開啟精煉介面時，記住 NPC 物件 ID，以便 C_Result 攔截。
+	// 0 = 未開啟精煉介面。
+	FireSmithNpcObjID int32
+
 	// Paginated teleport (Npc_Teleport): current browsing state
 	TelePage     int    // current page (0-based)
 	TeleCategory string // current category key (e.g., "A", "B", "H01")
@@ -179,6 +200,10 @@ type PlayerInfo struct {
 
 	// Exclude/block list (session-only, max 16 entries, NOT persisted)
 	ExcludeList []string
+
+	// 已完成任務（登入時從 character_quests 載入，status=1）
+	// key=quest_id, value=true
+	QuestsDone map[int32]bool
 
 	// 物品使用延遲（runtime-only，不持久化）
 	// key=DelayID (如 502=道具共用), value=到期時間
@@ -289,6 +314,11 @@ func (p *PlayerInfo) RemoveBuff(skillID int32) *ActiveBuff {
 	old := p.ActiveBuffs[skillID]
 	delete(p.ActiveBuffs, skillID)
 	return old
+}
+
+// IsQuestDone 檢查指定任務是否已完成。
+func (p *PlayerInfo) IsQuestDone(questID int32) bool {
+	return p.QuestsDone[questID]
 }
 
 // KnownPos 記錄已知實體的最後位置（用於離開視野時解鎖格子）。

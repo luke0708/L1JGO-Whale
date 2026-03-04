@@ -102,6 +102,9 @@ func HandleEnterWorld(sess *net.Session, r *packet.Reader, deps *Deps) {
 	// 從 DB 載入限時地圖已使用時間（JSONB column）
 	loadMapTimesFromDB(player, deps)
 
+	// 從 DB 載入已完成任務（欄位開通等）
+	loadQuestsFromDB(player, deps)
+
 	// Load buddy list from DB
 	loadBuddiesFromDB(player, deps)
 
@@ -153,7 +156,10 @@ func HandleEnterWorld(sess *net.Session, r *packet.Reader, deps *Deps) {
 		sendSkillList(sess, spells)
 	}
 
-	// 9b. S_EquipmentSlot (opcode 64, sub-type 0x42) — 已裝備欄位
+	// 9b. 已開通的擴充裝備欄位 → 發送圖示解鎖封包（S_CharReset type=67）
+	sendUnlockedSlotExpansions(sess, player)
+
+	// 9c. S_EquipmentSlot (opcode 64, sub-type 0x42) — 已裝備欄位
 	if deps.Equip != nil {
 		deps.Equip.SendEquipList(sess, player)
 	}
@@ -655,6 +661,35 @@ func sendCharResetInfo(sess *net.Session, ch *persist.CharacterRow, player *worl
 	w.WriteC(0x00) // Java: S_CharResetInfo 尾部填充
 	w.WriteH(0x00) // Java: S_CharResetInfo 尾部填充
 	sess.Send(w.Bytes())
+}
+
+// sendUnlockedSlotExpansions 對已開通的擴充欄位發送 S_CharReset(67) 圖示解鎖封包。
+// 登入時呼叫，在 S_EquipmentSlot 之前發送，讓客戶端知道哪些擴充欄位已可用。
+func sendUnlockedSlotExpansions(sess *net.Session, player *world.PlayerInfo) {
+	if player.IsQuestDone(79) {
+		sendSlotExpansion(sess, 79) // Ring3（Lv76 戒指欄）
+	}
+	if player.IsQuestDone(80) {
+		sendSlotExpansion(sess, 80) // Ring4（Lv81 戒指欄）
+	}
+
+}
+
+// loadQuestsFromDB 載入角色已完成的任務到 QuestsDone map。
+func loadQuestsFromDB(player *world.PlayerInfo, deps *Deps) {
+	if deps.QuestRepo == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	quests, err := deps.QuestRepo.LoadCompleted(ctx, player.CharID)
+	if err != nil {
+		deps.Log.Error("載入任務失敗", zap.String("name", player.Name), zap.Error(err))
+		return
+	}
+	player.QuestsDone = quests
 }
 
 // loadBuddiesFromDB loads the buddy list from the character_buddys table.

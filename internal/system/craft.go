@@ -60,16 +60,55 @@ func (s *CraftSystem) HandleCraftEntry(sess *net.Session, player *world.PlayerIn
 	s.ExecuteCraft(sess, player, npc, recipe, 1)
 }
 
-// ExecuteCraft 執行製作：驗證材料、消耗、生產物品。
-// Java: L1NpcMakeItemAction.makeItems()
+// ExecuteCraft 執行製作：驗證限制、材料、消耗、機率判定、生產物品。
+// Java: L1Blend.CheckCraftItem() + L1Blend.CraftItem()
 func (s *CraftSystem) ExecuteCraft(sess *net.Session, player *world.PlayerInfo, npc *world.NpcInfo, recipe *data.CraftRecipe, amount int32) {
 	if amount <= 0 {
 		return
 	}
 
-	// 1. 材料檢查 — 驗證所有材料是否足夠（僅計算未裝備的）
+	npcObjID := int32(0)
+	npcName := ""
+	if npc != nil {
+		npcObjID = npc.ID
+		if npcInfo := s.deps.Npcs.Get(npc.NpcID); npcInfo != nil {
+			npcName = npcInfo.Name
+		}
+	}
+
+	// === 前置條件檢查 ===
+
+	// 等級限制
+	if recipe.RequiredLevel > 0 && int32(player.Level) < recipe.RequiredLevel {
+		handler.SendGlobalChat(sess, 9, fmt.Sprintf("\\f3等級必須為 %d 以上。", recipe.RequiredLevel))
+		handler.SendCloseList(sess, npcObjID)
+		return
+	}
+
+	// 職業限制
+	if recipe.RequiredClass > 0 {
+		if !matchClass(player.ClassType, recipe.RequiredClass) {
+			handler.SendGlobalChat(sess, 9, fmt.Sprintf("\\f3職業必須是 %s。", classIDToStr(recipe.RequiredClass)))
+			handler.SendCloseList(sess, npcObjID)
+			return
+		}
+	}
+
+	// HP/MP 消耗檢查
+	if recipe.HPConsume > 0 && int32(player.HP) <= recipe.HPConsume {
+		handler.SendGlobalChat(sess, 9, "\\f3HP 不足。")
+		handler.SendCloseList(sess, npcObjID)
+		return
+	}
+	if recipe.MPConsume > 0 && int32(player.MP) < recipe.MPConsume {
+		handler.SendGlobalChat(sess, 9, "\\f3MP 不足。")
+		handler.SendCloseList(sess, npcObjID)
+		return
+	}
+
+	// 材料檢查（數量 + 強化值）
 	for _, mat := range recipe.Materials {
-		have := countUnequippedByID(player.Inv, mat.ItemID)
+		have := countUnequippedByIDEnchant(player.Inv, mat.ItemID, mat.EnchantLvl)
 		need := mat.Amount * amount
 		if have < need {
 			shortage := need - have
@@ -78,54 +117,62 @@ func (s *CraftSystem) ExecuteCraft(sess *net.Session, player *world.PlayerInfo, 
 			if itemInfo != nil {
 				name = itemInfo.Name
 			}
-			// msg 337: "%0が%1個不足しています"（不足：%0 還差 %1 個）
 			handler.SendServerMessageArgs(sess, 337, name, fmt.Sprintf("%d", shortage))
+			handler.SendCloseList(sess, npcObjID)
 			return
 		}
 	}
 
-	// 2. 背包空間檢查（最多 180 格）
+	// 背包空間檢查
 	newSlots := 0
 	for _, out := range recipe.Items {
 		outInfo := s.deps.Items.Get(out.ItemID)
 		if outInfo != nil && outInfo.Stackable {
 			existing := player.Inv.FindByItemID(out.ItemID)
 			if existing == nil {
-				newSlots++ // 新堆疊
+				newSlots++
 			}
 		} else {
-			// 不可堆疊：每個物品佔一格
 			newSlots += int(out.Amount) * int(amount)
 		}
 	}
+	if recipe.BonusItemID > 0 {
+		bonusInfo := s.deps.Items.Get(recipe.BonusItemID)
+		if bonusInfo != nil && bonusInfo.Stackable {
+			if player.Inv.FindByItemID(recipe.BonusItemID) == nil {
+				newSlots++
+			}
+		} else {
+			newSlots += int(recipe.BonusItemCount) * int(amount)
+		}
+	}
 	if player.Inv.Size()+newSlots > world.MaxInventorySize {
-		// msg 263: "持有物品過多"
 		handler.SendServerMessage(sess, 263)
+		handler.SendCloseList(sess, npcObjID)
 		return
 	}
 
-	// 3. 負重檢查
+	// 負重檢查
 	var addWeight int32
 	for _, out := range recipe.Items {
-		outInfo := s.deps.Items.Get(out.ItemID)
-		if outInfo != nil {
+		if outInfo := s.deps.Items.Get(out.ItemID); outInfo != nil {
 			addWeight += outInfo.Weight * out.Amount * amount
 		}
 	}
 	maxW := world.PlayerMaxWeight(player)
 	if player.Inv.IsOverWeight(addWeight, maxW) {
-		// msg 82: "超過角色可攜帶的物品重量"
 		handler.SendServerMessage(sess, 82)
+		handler.SendCloseList(sess, npcObjID)
 		return
 	}
 
-	// 4. 消耗材料
+	// === 消耗材料 ===
 	for _, mat := range recipe.Materials {
 		remaining := mat.Amount * amount
 		for remaining > 0 {
-			slot := findUnequippedByID(player.Inv, mat.ItemID)
+			slot := findUnequippedByIDEnchant(player.Inv, mat.ItemID, mat.EnchantLvl)
 			if slot == nil {
-				break // 不應發生 — 上面已檢查
+				break
 			}
 			take := remaining
 			if take > slot.Count {
@@ -141,15 +188,63 @@ func (s *CraftSystem) ExecuteCraft(sess *net.Session, player *world.PlayerInfo, 
 		}
 	}
 
-	// 5. 生產物品
-	npcName := ""
-	if npc != nil {
-		npcInfo := s.deps.Npcs.Get(npc.NpcID)
-		if npcInfo != nil {
-			npcName = npcInfo.Name
+	// 消耗 HP/MP
+	if recipe.HPConsume > 0 {
+		player.HP -= int16(recipe.HPConsume)
+		if player.HP < 1 {
+			player.HP = 1
+		}
+		handler.SendHpUpdate(sess, player)
+	}
+	if recipe.MPConsume > 0 {
+		player.MP -= int16(recipe.MPConsume)
+		if player.MP < 0 {
+			player.MP = 0
+		}
+		handler.SendMpUpdate(sess, player)
+	}
+
+	// === 機率判定 + 製作 ===
+	successRate := recipe.SuccessRate
+	if successRate <= 0 {
+		successRate = 100 // 0 = 100% 成功
+	}
+
+	if recipe.AllInOnce || amount == 1 {
+		// 一次判定模式（或單件製作）
+		if successRate >= 100 || world.RandInt(1000) < int(successRate)*10 {
+			s.produceItems(sess, player, npc, recipe, amount, npcName)
+		} else {
+			s.produceFailed(sess, player, recipe, npcObjID)
+		}
+	} else {
+		// 逐件判定模式
+		var successCount, failCount int32
+		for i := int32(0); i < amount; i++ {
+			if successRate >= 100 || world.RandInt(1000) < int(successRate)*10 {
+				successCount++
+			} else {
+				failCount++
+			}
+		}
+		if successCount > 0 {
+			s.produceItems(sess, player, npc, recipe, successCount, npcName)
+		}
+		if failCount > 0 {
+			s.produceResidueItems(sess, player, recipe, failCount)
 		}
 	}
 
+	handler.SendWeightUpdate(sess, player)
+	handler.SendCloseList(sess, npcObjID)
+
+	s.deps.Log.Info(fmt.Sprintf("製作完成  角色=%s  配方=%s  數量=%d  NPC=%s",
+		player.Name, recipe.Action, amount, npcName))
+}
+
+// produceItems 生產成功的成品。
+func (s *CraftSystem) produceItems(sess *net.Session, player *world.PlayerInfo, npc *world.NpcInfo, recipe *data.CraftRecipe, amount int32, npcName string) {
+	// 成品
 	for _, out := range recipe.Items {
 		outInfo := s.deps.Items.Get(out.ItemID)
 		if outInfo == nil {
@@ -161,32 +256,106 @@ func (s *CraftSystem) ExecuteCraft(sess *net.Session, player *world.PlayerInfo, 
 			item := player.Inv.AddItem(out.ItemID, totalCount, outInfo.Name,
 				outInfo.InvGfx, outInfo.Weight, true, byte(outInfo.Bless))
 			item.UseType = data.UseTypeToID(outInfo.UseType)
+			if out.EnchantLvl > 0 {
+				item.EnchantLvl = int8(out.EnchantLvl)
+			}
 			handler.SendAddItem(sess, item, outInfo)
 		} else {
 			for i := int32(0); i < totalCount; i++ {
+				bless := byte(outInfo.Bless)
+				if out.Bless > 0 {
+					bless = byte(out.Bless)
+				}
 				item := player.Inv.AddItem(out.ItemID, 1, outInfo.Name,
-					outInfo.InvGfx, outInfo.Weight, false, byte(outInfo.Bless))
+					outInfo.InvGfx, outInfo.Weight, false, bless)
 				item.UseType = data.UseTypeToID(outInfo.UseType)
+				if out.EnchantLvl > 0 {
+					item.EnchantLvl = int8(out.EnchantLvl)
+				}
+				item.Identified = true
 				handler.SendAddItem(sess, item, outInfo)
 			}
 		}
 
-		// msg 143: "%0 給了你 %1"（[NPC] 給了你 [物品]）
 		if npcName != "" {
 			handler.SendServerMessageArgs(sess, 143, npcName, outInfo.Name)
 		}
 	}
 
-	handler.SendWeightUpdate(sess, player)
+	// 加成物品（成功時額外獎勵）
+	if recipe.BonusItemID > 0 && recipe.BonusItemCount > 0 {
+		bonusInfo := s.deps.Items.Get(recipe.BonusItemID)
+		if bonusInfo != nil {
+			totalBonus := recipe.BonusItemCount * amount
+			if bonusInfo.Stackable {
+				item := player.Inv.AddItem(recipe.BonusItemID, totalBonus, bonusInfo.Name,
+					bonusInfo.InvGfx, bonusInfo.Weight, true, byte(bonusInfo.Bless))
+				item.UseType = data.UseTypeToID(bonusInfo.UseType)
+				handler.SendAddItem(sess, item, bonusInfo)
+			} else {
+				for i := int32(0); i < totalBonus; i++ {
+					item := player.Inv.AddItem(recipe.BonusItemID, 1, bonusInfo.Name,
+						bonusInfo.InvGfx, bonusInfo.Weight, false, byte(bonusInfo.Bless))
+					item.UseType = data.UseTypeToID(bonusInfo.UseType)
+					handler.SendAddItem(sess, item, bonusInfo)
+				}
+			}
+			if npcName != "" {
+				handler.SendServerMessageArgs(sess, 143, npcName, bonusInfo.Name)
+			}
+		}
+	}
 
-	s.deps.Log.Info(fmt.Sprintf("製作完成  角色=%s  配方=%s  數量=%d",
-		player.Name, recipe.Action, amount))
+	// 全服廣播（Java: S_GreenMessage）
+	if recipe.Broadcast {
+		resultName := ""
+		if len(recipe.Items) > 0 {
+			if info := s.deps.Items.Get(recipe.Items[0].ItemID); info != nil {
+				resultName = info.Name
+			}
+		}
+		msg := fmt.Sprintf("%s 成功製作了 %s！", player.Name, resultName)
+		broadcastData := handler.BuildGreenMessage(msg)
+		s.deps.World.AllPlayers(func(p *world.PlayerInfo) {
+			p.Session.Send(broadcastData)
+		})
+	}
 }
 
-// --- 私有輔助函式 ---
+// produceFailed 處理製作失敗（生成殘留物品）。
+func (s *CraftSystem) produceFailed(sess *net.Session, player *world.PlayerInfo, recipe *data.CraftRecipe, npcObjID int32) {
+	handler.SendGlobalChat(sess, 9, "\\f3道具製造失敗了。")
+	s.produceResidueItems(sess, player, recipe, 1)
+}
+
+// produceResidueItems 生成失敗殘留物品。
+func (s *CraftSystem) produceResidueItems(sess *net.Session, player *world.PlayerInfo, recipe *data.CraftRecipe, failCount int32) {
+	if recipe.ResidueItemID <= 0 || recipe.ResidueItemCount <= 0 {
+		return
+	}
+	resInfo := s.deps.Items.Get(recipe.ResidueItemID)
+	if resInfo == nil {
+		return
+	}
+	totalRes := recipe.ResidueItemCount * failCount
+	if resInfo.Stackable {
+		item := player.Inv.AddItem(recipe.ResidueItemID, totalRes, resInfo.Name,
+			resInfo.InvGfx, resInfo.Weight, true, byte(resInfo.Bless))
+		item.UseType = data.UseTypeToID(resInfo.UseType)
+		handler.SendAddItem(sess, item, resInfo)
+	} else {
+		for i := int32(0); i < totalRes; i++ {
+			item := player.Inv.AddItem(recipe.ResidueItemID, 1, resInfo.Name,
+				resInfo.InvGfx, resInfo.Weight, false, byte(resInfo.Bless))
+			item.UseType = data.UseTypeToID(resInfo.UseType)
+			handler.SendAddItem(sess, item, resInfo)
+		}
+	}
+}
+
+// === 私有輔助函式 ===
 
 // countMaterialSets 計算玩家可提供幾套完整材料。
-// 僅計算未裝備的物品。材料不足則回傳 0。
 func countMaterialSets(inv *world.Inventory, materials []data.CraftMaterial) int32 {
 	if len(materials) == 0 {
 		return 0
@@ -219,6 +388,17 @@ func countUnequippedByID(inv *world.Inventory, itemID int32) int32 {
 	return total
 }
 
+// countUnequippedByIDEnchant 計算未裝備且強化值 >= 要求的指定物品總數量。
+func countUnequippedByIDEnchant(inv *world.Inventory, itemID int32, reqEnchant int32) int32 {
+	var total int32
+	for _, it := range inv.Items {
+		if it.ItemID == itemID && !it.Equipped && int32(it.EnchantLvl) >= reqEnchant {
+			total += it.Count
+		}
+	}
+	return total
+}
+
 // findUnequippedByID 找到第一個未裝備的指定物品。
 func findUnequippedByID(inv *world.Inventory, itemID int32) *world.InvItem {
 	for _, it := range inv.Items {
@@ -227,4 +407,45 @@ func findUnequippedByID(inv *world.Inventory, itemID int32) *world.InvItem {
 		}
 	}
 	return nil
+}
+
+// findUnequippedByIDEnchant 找到第一個未裝備且強化值 >= 要求的指定物品。
+func findUnequippedByIDEnchant(inv *world.Inventory, itemID int32, reqEnchant int32) *world.InvItem {
+	for _, it := range inv.Items {
+		if it.ItemID == itemID && !it.Equipped && int32(it.EnchantLvl) >= reqEnchant {
+			return it
+		}
+	}
+	return nil
+}
+
+// matchClass 檢查玩家職業是否符合要求。
+// classType: 0=王族, 1=騎士, 2=法師, 3=妖精, 4=黑暗妖精, 5=龍騎士, 6=幻術師, 7=戰士
+// requiredClass: 1=王族, 2=騎士, 3=法師, 4=妖精, 5=黑妖, 6=龍騎, 7=幻術師, 8=戰士
+func matchClass(classType int16, requiredClass int32) bool {
+	return int32(classType)+1 == requiredClass
+}
+
+// classIDToStr 將配方職業 ID 轉為顯示名稱（與 handler 的 classIDToName 相同）。
+func classIDToStr(classID int32) string {
+	switch classID {
+	case 1:
+		return "王族"
+	case 2:
+		return "騎士"
+	case 3:
+		return "法師"
+	case 4:
+		return "妖精"
+	case 5:
+		return "黑暗妖精"
+	case 6:
+		return "龍騎士"
+	case 7:
+		return "幻術師"
+	case 8:
+		return "戰士"
+	default:
+		return ""
+	}
 }

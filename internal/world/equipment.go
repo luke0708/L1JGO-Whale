@@ -19,7 +19,15 @@ const (
 	SlotEarring EquipSlot = 12
 	SlotGuarder EquipSlot = 13
 	SlotTShirt  EquipSlot = 14
-	SlotMax     EquipSlot = 15
+	SlotRing3       EquipSlot = 15 // 第3戒指欄（Lv76 任務開通）
+	SlotRing4       EquipSlot = 16 // 第4戒指欄（Lv81 任務開通）
+	SlotRuneLeft    EquipSlot = 17 // 符石 左（3.80C 只有 client idx 22 可用）
+	SlotRuneMiddle  EquipSlot = 18 // 符石 中（3.80C 共用 client idx 22）
+	SlotRuneRight   EquipSlot = 19 // 符石 右（3.80C 共用 client idx 22）
+	SlotTalisman    EquipSlot = 20 // 六芒星護身符（Java type 18 → idx 25）
+	SlotTalisman2   EquipSlot = 21 // 蒂蜜特紋樣（Java type 19 → idx 26）
+	SlotTalisman3   EquipSlot = 22 // 蒂蜜特符文（Java type 20 → idx 27）
+	SlotMax         EquipSlot = 23
 )
 
 // Equipment tracks what a player currently has equipped.
@@ -75,6 +83,18 @@ func ArmorSlotFromType(armorType string) EquipSlot {
 		return SlotEarring
 	case "belt":
 		return SlotBelt
+	case "runeword_left":
+		return SlotRuneLeft
+	case "runeword_middle":
+		return SlotRuneMiddle
+	case "runeword_right":
+		return SlotRuneRight
+	case "talisman":
+		return SlotTalisman
+	case "talisman2":
+		return SlotTalisman2
+	case "talisman3":
+		return SlotTalisman3
 	default:
 		return SlotNone
 	}
@@ -141,7 +161,10 @@ type EquipStats struct {
 // Java: armor type 8-12 (amulet, ring, guarder/bracer, earring) are accessories.
 func IsAccessorySlot(slot EquipSlot) bool {
 	switch slot {
-	case SlotAmulet, SlotRing1, SlotRing2, SlotGuarder, SlotEarring:
+	case SlotAmulet, SlotRing1, SlotRing2, SlotRing3, SlotRing4,
+		SlotGuarder, SlotEarring,
+		SlotRuneLeft, SlotRuneMiddle, SlotRuneRight,
+		SlotTalisman, SlotTalisman2, SlotTalisman3:
 		return true
 	}
 	return false
@@ -180,6 +203,18 @@ func EquipClientIndex(slot EquipSlot) byte {
 		return 18 // Java: EQUIPMENT_INDEX_RING1 = 18
 	case SlotRing2:
 		return 19 // Java: EQUIPMENT_INDEX_RING2 = 19
+	case SlotRing3:
+		return 20 // Java: EQUIPMENT_INDEX_RING3 = 20
+	case SlotRing4:
+		return 21 // Java: EQUIPMENT_INDEX_RING4 = 21
+	case SlotRuneLeft, SlotRuneMiddle, SlotRuneRight:
+		return 22 // 3.80C 客戶端只有 1 個符石視覺欄位（index 22）
+	case SlotTalisman:
+		return 25 // Java: type 18 (六芒星護身符) → idx = 25
+	case SlotTalisman2:
+		return 26 // Java: type 19 (蒂蜜特紋樣) → idx = 26
+	case SlotTalisman3:
+		return 27 // Java: type 20 (蒂蜜特符文) → idx = 27
 	}
 	return 0
 }
