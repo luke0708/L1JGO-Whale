@@ -39,7 +39,7 @@ func main() {
 func printBanner(serverName string, serverID int) {
 	fmt.Println()
 	fmt.Println("\033[36;1m  ┌───────────────────────────────────────────┐\033[0m")
-	fmt.Println("\033[36;1m  │\033[0m           L1JGO-Whale  v0.1.0             \033[36;1m│\033[0m")
+	fmt.Println("\033[36;1m  │\033[0m           L1JGO-Whale  v0.3.5             \033[36;1m│\033[0m")
 	fmt.Println("\033[36;1m  │\033[0m      天堂 3.80C · Go 遊戲伺服器           \033[36;1m│\033[0m")
 	fmt.Println("\033[36;1m  └───────────────────────────────────────────┘\033[0m")
 	fmt.Println()
@@ -138,6 +138,7 @@ func run() error {
 	walRepo := persist.NewWALRepo(db)
 	clanRepo := persist.NewClanRepo(db)
 	buffRepo := persist.NewBuffRepo(db)
+	questRepo := persist.NewQuestRepo(db)
 	buddyRepo := persist.NewBuddyRepo(db)
 	excludeRepo := persist.NewExcludeRepo(db)
 	boardRepo := persist.NewBoardRepo(db)
@@ -273,6 +274,12 @@ func run() error {
 	}
 	printStat("製作配方", itemMakingTable.Count())
 
+	fireCrystalTable, err := data.LoadFireCrystalTable("data/yaml/fire_crystal_list.yaml")
+	if err != nil {
+		return fmt.Errorf("load fire crystal table: %w", err)
+	}
+	printStat("火結晶表", fireCrystalTable.Count())
+
 	spellbookReqs, err := data.LoadSpellbookReqTable("data/yaml/spellbook_level_req.yaml")
 	if err != nil {
 		return fmt.Errorf("load spellbook reqs: %w", err)
@@ -396,9 +403,11 @@ func run() error {
 		BuffRepo:       buffRepo,
 		Doors:          doorTable,
 		ItemMaking:     itemMakingTable,
+		FireCrystals:   fireCrystalTable,
 		SpellbookReqs:  spellbookReqs,
 		BuffIcons:      buffIconTable,
 		NpcServices:    npcServiceTable,
+		QuestRepo:     questRepo,
 		BuddyRepo:     buddyRepo,
 		ExcludeRepo:   excludeRepo,
 		BoardRepo:     boardRepo,
@@ -411,6 +420,7 @@ func run() error {
 		WeaponSkills:  weaponSkillTable,
 	}
 	handler.RegisterAll(pktReg, deps)
+	handler.SetShowNpcID(cfg.Debug.ShowNpcID)
 
 	// 7. Create network server
 	pktPerSec := 0
@@ -439,6 +449,10 @@ func run() error {
 	runner.Register(inputSys)
 	// Phase 1: Event dispatch (double-buffer swap + deliver previous tick's events)
 	runner.Register(system.NewEventDispatchSystem(eventBus))
+	// Phase 1: 卷軸延遲傳送（特效後延遲 1 tick 執行傳送）
+	runner.Register(system.NewScrollTeleportSystem(worldState, deps))
+	// Phase 1: 製作交易視窗延遲物品發送（S_Trade 後 1 tick 發送 S_TradeAddItem）
+	runner.Register(system.NewCraftTradeSystem(worldState, deps))
 	// Wire event bus into handler deps (for EntityKilled emission, etc.)
 	deps.Bus = eventBus
 	// Subscribe to game events (proves event bus pipeline end-to-end)
