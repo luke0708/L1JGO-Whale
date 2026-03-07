@@ -30,6 +30,11 @@ func (s *CompanionAISystem) Update(_ time.Duration) {
 	s.tickDolls()
 	s.tickFollowers()
 	s.tickPets()
+	s.tickHierarchs()
+	// 寵物比賽計時器
+	if s.deps.PetMatch != nil {
+		s.deps.PetMatch.TickPetMatches()
+	}
 }
 
 // ========================================================================
@@ -312,20 +317,26 @@ func (s *CompanionAISystem) tickDolls() {
 			doll.MoveTimer--
 		}
 
-		// Check same map
+		// 跨地圖 → 瞬移到主人身邊
 		if doll.MapID != master.MapID {
-			s.companionTeleportToMaster(doll.ID, master, func(id int32, x, y int32, h int16) {
-				ws.UpdateDollPosition(id, x, y, h)
-			})
+			s.dollTeleportToMaster(doll, master)
 			return
 		}
 
-		// Follow master (with move cooldown like summons)
+		// 跟隨主人
 		dist := chebyshev32(doll.X, doll.Y, master.X, master.Y)
+
+		// 距離過遠（>15 格）→ 同地圖瞬移
+		if dist > 15 {
+			s.dollTeleportToMaster(doll, master)
+			return
+		}
+
+		// 距離 > 2 格 → 向主人移動
 		if dist > 2 && doll.MoveTimer <= 0 {
 			s.companionMoveToward(doll.ID, doll.X, doll.Y, doll.MapID, master.X, master.Y,
 				func(id int32, x, y int32, h int16) { ws.UpdateDollPosition(id, x, y, h) })
-			doll.MoveTimer = 2 // 2 ticks = 400ms between moves
+			doll.MoveTimer = 2 // 2 ticks = 400ms
 		}
 	})
 
@@ -349,6 +360,31 @@ func (s *CompanionAISystem) tickDolls() {
 		for _, viewer := range nearby {
 			sendCompanionRemove(viewer.Session, doll.ID)
 		}
+	}
+}
+
+// dollTeleportToMaster 將娃娃瞬移到主人身邊。
+// 處理跨地圖和同地圖遠距離兩種情況，正確更新 AOI 網格並發送視覺封包。
+func (s *CompanionAISystem) dollTeleportToMaster(doll *world.DollInfo, master *world.PlayerInfo) {
+	ws := s.world
+
+	// 先對舊位置的觀察者發送移除封包
+	oldViewers := ws.GetNearbyPlayersAt(doll.X, doll.Y, doll.MapID)
+	for _, viewer := range oldViewers {
+		sendCompanionRemove(viewer.Session, doll.ID)
+	}
+
+	// 在主人附近隨機位置
+	newX := master.X + int32(world.RandInt(3)) - 1
+	newY := master.Y + int32(world.RandInt(3)) - 1
+
+	// 使用 TeleportDoll 正確更新 MapID + AOI 網格
+	ws.TeleportDoll(doll.ID, newX, newY, master.MapID, master.Heading)
+
+	// 對新位置的觀察者發送出生封包
+	newViewers := ws.GetNearbyPlayersAt(doll.X, doll.Y, doll.MapID)
+	for _, viewer := range newViewers {
+		handler.SendDollPack(viewer.Session, doll, master.Name)
 	}
 }
 
@@ -508,6 +544,22 @@ func (s *CompanionAISystem) tickPets() {
 			pet.AggroPlayerID = 0
 
 		case world.PetStatusAggressive:
+			// 寵物比賽：攻擊目標寵物
+			if pet.AggroPetID != 0 {
+				if pet.AttackTimer <= 0 {
+					s.petAttackPetTarget(pet)
+				}
+				// 向目標寵物移動（非跟隨主人）
+				if target := ws.GetPet(pet.AggroPetID); target != nil && !target.Dead {
+					td := chebyshev32(pet.X, pet.Y, target.X, target.Y)
+					if td > 1 && pet.MoveTimer <= 0 {
+						s.companionMoveToward(pet.ID, pet.X, pet.Y, pet.MapID, target.X, target.Y,
+							func(id int32, x, y int32, h int16) { ws.UpdatePetPosition(id, x, y, h) })
+						pet.MoveTimer = 2
+					}
+				}
+				break
+			}
 			// Attack nearest NPC if no target
 			if pet.AggroTarget == 0 {
 				s.petScanForTarget(pet)
@@ -724,6 +776,78 @@ func (s *CompanionAISystem) petAttackTarget(pet *world.PetInfo) {
 	}
 }
 
+// petAttackPetTarget 寵物比賽：攻擊目標寵物（pet-vs-pet）。
+func (s *CompanionAISystem) petAttackPetTarget(pet *world.PetInfo) {
+	ws := s.world
+	target := ws.GetPet(pet.AggroPetID)
+	if target == nil || target.Dead {
+		pet.AggroPetID = 0
+		return
+	}
+
+	dist := chebyshev32(pet.X, pet.Y, target.X, target.Y)
+	if dist > int32(pet.Ranged) || (dist > 1 && pet.Ranged <= 1) {
+		return // 距離不夠，等移動
+	}
+
+	// 傷害計算（與 petAttackTarget 一致）
+	dmg := pet.AtkDmg + int32(pet.DamageByWeapon)
+	if dmg <= 0 {
+		dmg = int32(pet.Level)/2 + 1
+	}
+	variance := int32(world.RandInt(int(dmg/4+1))) - dmg/8
+	dmg += variance
+
+	// 目標 AC 減傷
+	acReduction := int32(-target.AC) / 3
+	dmg -= acReduction
+	if dmg < 1 {
+		dmg = 1
+	}
+
+	// 扣血
+	target.HP -= dmg
+	heading := calcNpcHeading(pet.X, pet.Y, target.X, target.Y)
+
+	// 廣播攻擊動畫
+	nearby := ws.GetNearbyPlayersAt(pet.X, pet.Y, pet.MapID)
+	petAtkData := buildNpcAttack(pet.ID, target.ID, dmg, heading)
+	handler.BroadcastToPlayers(nearby, petAtkData)
+
+	// 目標寵物死亡
+	if target.HP <= 0 {
+		if s.deps.PetLife != nil {
+			s.deps.PetLife.PetDie(target)
+		}
+		targetMaster := ws.GetByCharID(target.OwnerCharID)
+		if targetMaster != nil {
+			sendCompanionHpMeter(targetMaster.Session, target.ID, 0, target.MaxHP)
+		}
+	} else {
+		// 更新目標寵物主人的 HP 條
+		targetMaster := ws.GetByCharID(target.OwnerCharID)
+		if targetMaster != nil {
+			sendCompanionHpMeter(targetMaster.Session, target.ID, target.HP, target.MaxHP)
+		}
+	}
+
+	// 更新自己主人的 HP 條
+	master := ws.GetByCharID(pet.OwnerCharID)
+	if master != nil {
+		sendCompanionHpMeter(master.Session, pet.ID, pet.HP, pet.MaxHP)
+	}
+
+	// 攻擊冷卻
+	atkCooldown := 10
+	if pet.AtkSpeed > 0 {
+		atkCooldown = int(pet.AtkSpeed) / 200
+		if atkCooldown < 3 {
+			atkCooldown = 3
+		}
+	}
+	pet.AttackTimer = atkCooldown
+}
+
 // savePetToDB saves pet state to database (fire-and-forget with short timeout).
 func (s *CompanionAISystem) savePetToDB(pet *world.PetInfo) {
 	if s.deps.PetRepo == nil {
@@ -744,6 +868,162 @@ func (s *CompanionAISystem) savePetToDB(pet *world.PetInfo) {
 		Exp:       pet.Exp,
 		Lawful:    pet.Lawful,
 	})
+}
+
+// ========================================================================
+//  Hierarch AI（隨身祭司）
+// ========================================================================
+
+func (s *CompanionAISystem) tickHierarchs() {
+	ws := s.world
+	var toRemove []int32
+
+	ws.AllHierarchs(func(h *world.HierarchInfo) {
+		master := ws.GetByCharID(h.OwnerCharID)
+		if master == nil || master.Dead || master.Invisible {
+			toRemove = append(toRemove, h.ID)
+			return
+		}
+
+		// 計時器倒數
+		if h.TimerTicks > 0 {
+			h.TimerTicks--
+			if h.TimerTicks <= 0 {
+				toRemove = append(toRemove, h.ID)
+				return
+			}
+		}
+
+		// 冷卻計時器遞減
+		if h.MoveTimer > 0 {
+			h.MoveTimer--
+		}
+		if h.BuffTimer > 0 {
+			h.BuffTimer--
+		}
+
+		// MP 自然恢復（每 5 ticks = 1 秒，回復 1 MP）
+		if h.MP < h.MaxMP && h.TimerTicks%5 == 0 {
+			h.MP++
+		}
+
+		// 跨地圖 → 瞬移
+		if h.MapID != master.MapID {
+			s.hierarchTeleportToMaster(h, master)
+			return
+		}
+
+		// 跟隨主人
+		dist := chebyshev32(h.X, h.Y, master.X, master.Y)
+
+		// 距離過遠 → 瞬移
+		if dist > 15 {
+			s.hierarchTeleportToMaster(h, master)
+			return
+		}
+
+		// 距離 > 2 → 向主人移動
+		if dist > 2 && h.MoveTimer <= 0 {
+			s.companionMoveToward(h.ID, h.X, h.Y, h.MapID, master.X, master.Y,
+				func(id int32, x, y int32, heading int16) { ws.UpdateHierarchPosition(id, x, y, heading) })
+			h.MoveTimer = 2
+		}
+
+		// 自動增益 + 自動治療（每 50 ticks = 10 秒，與 Java 一致）
+		if h.BuffTimer <= 0 {
+			s.hierarchAutoBuff(h, master)
+			h.BuffTimer = 50
+		}
+	})
+
+	// 移除過期/失效的祭司
+	for _, id := range toRemove {
+		h := ws.RemoveHierarch(id)
+		if h == nil {
+			continue
+		}
+		master := ws.GetByCharID(h.OwnerCharID)
+		if master != nil {
+			sendCompanionSoundEffect(master.Session, h.ID, 5936) // 解散音效
+		}
+		nearby := ws.GetNearbyPlayersAt(h.X, h.Y, h.MapID)
+		for _, viewer := range nearby {
+			sendCompanionRemove(viewer.Session, h.ID)
+		}
+	}
+}
+
+// hierarchTeleportToMaster 將祭司瞬移到主人身邊。
+func (s *CompanionAISystem) hierarchTeleportToMaster(h *world.HierarchInfo, master *world.PlayerInfo) {
+	ws := s.world
+
+	// 對舊位置觀察者發送移除封包
+	oldViewers := ws.GetNearbyPlayersAt(h.X, h.Y, h.MapID)
+	for _, viewer := range oldViewers {
+		sendCompanionRemove(viewer.Session, h.ID)
+	}
+
+	// 瞬移到主人附近
+	newX := master.X + int32(world.RandInt(3)) - 1
+	newY := master.Y + int32(world.RandInt(3)) - 1
+	ws.TeleportHierarch(h.ID, newX, newY, master.MapID, master.Heading)
+
+	// 對新位置觀察者發送出生封包
+	newViewers := ws.GetNearbyPlayersAt(h.X, h.Y, h.MapID)
+	for _, viewer := range newViewers {
+		handler.SendHierarchPack(viewer.Session, h, master.Name)
+	}
+}
+
+// hierarchAutoBuff 祭司自動增益邏輯。
+// Java: L1HierarchInstance.noTarget() — 檢查主人 buff 狀態，缺少則施放。
+// 消耗祭司自身 MP（每個技能 15 MP）。
+func (s *CompanionAISystem) hierarchAutoBuff(h *world.HierarchInfo, master *world.PlayerInfo) {
+	// 遍歷技能列表，檢查主人是否缺少 buff
+	for _, skillID := range h.BuffSkills {
+		if h.MP < 15 {
+			break // MP 不足
+		}
+
+		// 檢查主人是否已有此 buff
+		if master.ActiveBuffs != nil {
+			if _, hasBuff := master.ActiveBuffs[skillID]; hasBuff {
+				continue // 已有，跳過
+			}
+		}
+
+		// 施放 buff（使用 GM buff 繞過消耗驗證）
+		if s.deps.Skill != nil {
+			if s.deps.Skill.ApplyGMBuff(master, skillID) {
+				h.MP -= 15
+
+				// 廣播祭司施法 GFX（6321 = 祭司治療音效）
+				nearby := s.world.GetNearbyPlayersAt(h.X, h.Y, h.MapID)
+				gfxData := handler.BuildSkillEffect(h.ID, 6321)
+				handler.BroadcastToPlayers(nearby, gfxData)
+			}
+		}
+	}
+
+	// 自動治療：主人 HP < MaxHP * HealThreshold / 10 時治療
+	if h.MP >= 15 && h.HealThreshold > 0 {
+		threshold := int16(int32(master.MaxHP) * int32(h.HealThreshold) / 10)
+		if master.HP < threshold {
+			// 回復量 = 30 + 隨機 0-75（Java: lawful + random(75)）
+			heal := int16(30 + world.RandInt(76))
+			master.HP += heal
+			if master.HP > master.MaxHP {
+				master.HP = master.MaxHP
+			}
+			h.MP -= 15
+
+			// 更新主人 HP + 治療特效
+			handler.SendPlayerStatus(master.Session, master)
+			nearby := s.world.GetNearbyPlayersAt(master.X, master.Y, master.MapID)
+			gfxData := handler.BuildSkillEffect(master.CharID, 6321)
+			handler.BroadcastToPlayers(nearby, gfxData)
+		}
+	}
 }
 
 // ========================================================================

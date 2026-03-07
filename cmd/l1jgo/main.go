@@ -39,7 +39,7 @@ func main() {
 func printBanner(serverName string, serverID int) {
 	fmt.Println()
 	fmt.Println("\033[36;1m  ┌───────────────────────────────────────────┐\033[0m")
-	fmt.Println("\033[36;1m  │\033[0m           L1JGO-Whale  v0.3.6             \033[36;1m│\033[0m")
+	fmt.Println("\033[36;1m  │\033[0m           L1JGO-Whale  v0.3.10           \033[36;1m│\033[0m")
 	fmt.Println("\033[36;1m  │\033[0m      天堂 3.80C · Go 遊戲伺服器           \033[36;1m│\033[0m")
 	fmt.Println("\033[36;1m  └───────────────────────────────────────────┘\033[0m")
 	fmt.Println()
@@ -139,11 +139,14 @@ func run() error {
 	clanRepo := persist.NewClanRepo(db)
 	buffRepo := persist.NewBuffRepo(db)
 	questRepo := persist.NewQuestRepo(db)
+	houseRepo := persist.NewHouseRepo(db)
+	innRepo := persist.NewInnRepo(db)
 	buddyRepo := persist.NewBuddyRepo(db)
 	excludeRepo := persist.NewExcludeRepo(db)
 	boardRepo := persist.NewBoardRepo(db)
 	mailRepo := persist.NewMailRepo(db)
 	petRepo := persist.NewPetRepo(db)
+	auctionRepo := persist.NewAuctionRepo(db)
 
 	// 4a. WAL crash recovery — replay unprocessed economic transactions
 	{
@@ -322,6 +325,12 @@ func run() error {
 	}
 	printStat("魔法娃娃", dollTable.Count())
 
+	hierarchTable, err := data.LoadHierarchTable("data/yaml/hierarchs.yaml")
+	if err != nil {
+		return fmt.Errorf("load hierarchs: %w", err)
+	}
+	printStat("隨身祭司", hierarchTable.Count())
+
 	teleportPageTable, err := data.LoadTeleportPageTable("data/yaml/npc_teleport_page.yaml")
 	if err != nil {
 		return fmt.Errorf("load teleport pages: %w", err)
@@ -364,6 +373,36 @@ func run() error {
 		return fmt.Errorf("load npc chat: %w", err)
 	}
 	printStat("NPC聊天", npcChatTable.Count())
+
+	houseTable, err := data.LoadHouseTable("data/yaml/house_list.yaml")
+	if err != nil {
+		return fmt.Errorf("load house table: %w", err)
+	}
+	printStat("住宅", houseTable.Count())
+
+	// 旅館房間載入
+	innRooms, err := loadInnRooms(ctx, innRepo)
+	if err != nil {
+		return fmt.Errorf("load inn rooms: %w", err)
+	}
+	printStat("旅館房間", len(innRooms))
+
+	questData, err := data.LoadQuestTable("data/yaml/quests.yaml")
+	if err != nil {
+		return fmt.Errorf("load quest table: %w", err)
+	}
+	printStat("任務範本", questData.Count())
+
+	trapData, err := data.LoadTrapData("data/yaml")
+	if err != nil {
+		return fmt.Errorf("load trap data: %w", err)
+	}
+	printStat("陷阱範本", len(trapData.Templates))
+	printStat("陷阱生成點", len(trapData.Spawns))
+
+	// 5d-1. 建立陷阱管理器（tile-based O(1) 查詢）
+	trapMgr := world.NewTrapManager(trapData, mapDataTable)
+	printStat("陷阱實例", trapMgr.Count())
 
 	// 5b. Initialize Lua scripting engine
 	luaEngine, err := scripting.NewEngine("scripts", log)
@@ -446,6 +485,7 @@ func run() error {
 		PetTypes:      petTypeTable,
 		PetItems:      petItemTable,
 		Dolls:         dollTable,
+		Hierarchs:     hierarchTable,
 		TeleportPages: teleportPageTable,
 		WeaponSkills:  weaponSkillTable,
 		ItemBoxes:     itemBoxTable,
@@ -453,6 +493,14 @@ func run() error {
 		ItemVIPs:      itemVIPTable,
 		NpcChats:      npcChatTable,
 		MobGroups:     mobGroupTable,
+		Houses:        houseTable,
+		HouseRepo:     houseRepo,
+		InnRepo:       innRepo,
+		InnRooms:      innRooms,
+		QuestData:     questData,
+		ClanMatching:  handler.NewClanMatchingManager(),
+		Alliances:     handler.NewAllianceManager(),
+		TrapMgr:       trapMgr,
 	}
 	handler.RegisterAll(pktReg, deps)
 	handler.SetShowNpcID(cfg.Debug.ShowNpcID)
@@ -534,10 +582,28 @@ func run() error {
 	deps.PetLife = system.NewPetSystem(deps)
 	// 魔法娃娃系統（召喚/解散/屬性加成）
 	deps.DollMgr = system.NewDollSystem(deps)
+	// 隨身祭司系統（召喚/解散/自動增益）
+	deps.HierarchMgr = system.NewHierarchSystem(deps)
+	// 寵物比賽系統（報名/比賽/獎勵）
+	deps.PetMatch = system.NewPetMatchSystem(deps)
+	// 任務動作系統（直接呼叫，非 Phase 系統）
+	deps.Quest = system.NewQuestSystem(deps)
+	// 陷阱觸發系統（直接呼叫，非 Phase 系統）
+	deps.Trap = system.NewTrapSystem(deps)
 	// 倉庫系統（直接呼叫，非 Phase 系統）
 	deps.Warehouse = system.NewWarehouseSystem(deps)
 	// PvP 系統（直接呼叫，非 Phase 系統）
 	deps.PvP = system.NewPvPSystem(deps)
+	// 天寶幣商城系統（直接呼叫，非 Phase 系統）
+	deps.ShopCnMgr = system.NewShopCnSystem(deps)
+	// 強化物品購買系統（直接呼叫，非 Phase 系統）
+	deps.PowerItemMgr = system.NewPowerItemSystem(deps)
+	// 魔法商店系統（直接呼叫，非 Phase 系統）
+	deps.SpellShopMgr = system.NewSpellShopSystem(deps)
+	// GM 命令系統（直接呼叫，非 Phase 系統）
+	deps.GMCmd = system.NewGMCommandSystem(deps)
+	// 個人商店交易系統（直接呼叫，非 Phase 系統）
+	deps.PrivShop = system.NewPrivateShopSystem(deps)
 
 	// Phase 2: Game logic
 	combatSys := system.NewCombatSystem(deps)
@@ -550,6 +616,16 @@ func run() error {
 	deps.Death = deathSys
 	polySys := system.NewPolymorphSystem(deps)
 	deps.Polymorph = polySys
+	npcSvcSys := system.NewNpcServiceSystem(deps)
+	deps.NpcSvc = npcSvcSys
+	charResetSys := system.NewCharResetSystem(deps)
+	deps.CharReset = charResetSys
+	statAllocSys := system.NewStatAllocSystem(deps)
+	deps.StatAlloc = statAllocSys
+	marriageSys := system.NewMarriageSystem(deps)
+	deps.Marriage = marriageSys
+	innSys := system.NewInnSystem(deps)
+	deps.Inn = innSys
 	summonSys := system.NewSummonSystem(deps)
 	deps.Summon = summonSys
 	runner.Register(system.NewBuffTickSystem(worldState, deps))
@@ -557,9 +633,11 @@ func run() error {
 	runner.Register(system.NewNpcAISystem(worldState, deps))
 	runner.Register(system.NewCompanionAISystem(worldState, deps))
 	// Phase 3: Post-update
-	runner.Register(system.NewRegenSystem(worldState, luaEngine))
+	runner.Register(system.NewRegenSystem(worldState, luaEngine, houseTable, cfg))
 	runner.Register(system.NewWeatherSystem(worldState))
-	runner.Register(system.NewMapTimerSystem(worldState, deps))
+	mapTimerSys := system.NewMapTimerSystem(worldState, deps)
+	deps.MapTimer = mapTimerSys
+	runner.Register(mapTimerSys)
 	hauntedHouseSys := system.NewHauntedHouseSystem(worldState, deps)
 	deps.HauntedHouse = hauntedHouseSys
 	inputSys.SetHauntedHouse(hauntedHouseSys)
@@ -573,6 +651,11 @@ func run() error {
 	rankingSys := system.NewRankingSystem(worldState, deps)
 	deps.Ranking = rankingSys
 	runner.Register(rankingSys)
+	auctionSys := system.NewAuctionSystem(worldState, deps, auctionRepo)
+	deps.Auction = auctionSys
+	runner.Register(auctionSys)
+	deps.Fishing = system.NewFishingSystem(deps)
+	runner.Register(system.NewTrapRespawnSystem(trapMgr))
 	runner.Register(system.NewVisibilitySystem(worldState, deps))
 	// Phase 4: Output — flush buffered packets to TCP
 	runner.Register(system.NewOutputSystem(sessStore))
@@ -666,6 +749,36 @@ func loadClans(ctx context.Context, ws *world.State, clanRepo *persist.ClanRepo)
 	}
 
 	return len(clans), nil
+}
+
+// loadInnRooms 載入旅館房間資料。若 NPC 沒有房間記錄，自動建立 16 間。
+// Java: InnTable — 啟動時從 房間資料數據 載入。
+func loadInnRooms(ctx context.Context, innRepo *persist.InnRepo) (map[int32]map[int32]*persist.InnRoom, error) {
+	// 9 個旅館 NPC
+	innNpcIDs := []int32{70012, 70019, 70031, 70065, 70070, 70075, 70084, 70054, 70096}
+
+	// 確保所有旅館 NPC 都有 16 間房間記錄
+	for _, npcID := range innNpcIDs {
+		if err := innRepo.EnsureRooms(ctx, npcID); err != nil {
+			return nil, err
+		}
+	}
+
+	// 載入所有房間
+	rooms, err := innRepo.LoadAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// 建立 npcID → roomNumber → room 對照表
+	result := make(map[int32]map[int32]*persist.InnRoom)
+	for _, room := range rooms {
+		if result[room.NpcID] == nil {
+			result[room.NpcID] = make(map[int32]*persist.InnRoom)
+		}
+		result[room.NpcID][room.RoomNumber] = room
+	}
+	return result, nil
 }
 
 // spawnNpcs creates NPC instances from spawn list and adds them to world state.

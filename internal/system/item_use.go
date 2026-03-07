@@ -756,7 +756,7 @@ func (s *ItemUseSystem) ApplyHaste(sess *net.Session, player *world.PlayerInfo, 
 	}
 	old := player.AddBuff(buff)
 	if old != nil {
-		handler.RevertBuffStats(player, old)
+		s.deps.Skill.RevertBuffStats(player, old)
 	}
 
 	player.MoveSpeed = 1
@@ -806,7 +806,7 @@ func (s *ItemUseSystem) applyBrave(sess *net.Session, player *world.PlayerInfo, 
 	}
 	old := player.AddBuff(buff)
 	if old != nil {
-		handler.RevertBuffStats(player, old)
+		s.deps.Skill.RevertBuffStats(player, old)
 	}
 
 	player.BraveSpeed = braveType
@@ -836,7 +836,7 @@ func (s *ItemUseSystem) applyWisdom(sess *net.Session, player *world.PlayerInfo,
 	}
 	old := player.AddBuff(buff)
 	if old != nil {
-		handler.RevertBuffStats(player, old)
+		s.deps.Skill.RevertBuffStats(player, old)
 	}
 
 	player.SP += sp
@@ -1013,4 +1013,202 @@ func sendCurseBlindPacket(sess *net.Session, blindType byte) {
 	w.WriteC(45)
 	w.WriteC(blindType)
 	sess.Send(w.Bytes())
+}
+
+// ConsumeBoxItem 消耗 1 個寶箱物品。
+func (s *ItemUseSystem) ConsumeBoxItem(sess *net.Session, player *world.PlayerInfo, invItem *world.InvItem) {
+	removed := player.Inv.RemoveItem(invItem.ObjectID, 1)
+	if removed {
+		handler.SendRemoveInventoryItem(sess, invItem.ObjectID)
+	} else {
+		handler.SendItemCountUpdate(sess, invItem)
+	}
+	player.Dirty = true
+}
+
+// GiveBoxReward 給予開箱獎勵物品。
+func (s *ItemUseSystem) GiveBoxReward(sess *net.Session, player *world.PlayerInfo, getItemID int32, minCount, maxCount int32, bless, enchant int8, broadcast bool) {
+	itemInfo := s.deps.Items.Get(getItemID)
+	if itemInfo == nil {
+		s.deps.Log.Warn("開箱物品不存在", zap.Int32("itemID", getItemID))
+		return
+	}
+
+	// 決定數量
+	count := minCount
+	if maxCount > minCount {
+		count = minCount + rand.Int31n(maxCount-minCount+1)
+	}
+	if count < 1 {
+		count = 1
+	}
+
+	// 決定祝福狀態：-1=使用模板預設值
+	itemBless := byte(itemInfo.Bless)
+	if bless >= 0 {
+		itemBless = byte(bless)
+	}
+
+	stackable := itemInfo.Stackable || getItemID == world.AdenaItemID
+
+	// 檢查是否已有同物品可堆疊
+	existing := player.Inv.FindByItemID(getItemID)
+	wasExisting := existing != nil && stackable
+
+	invItem := player.Inv.AddItem(getItemID, count, itemInfo.Name, itemInfo.InvGfx,
+		itemInfo.Weight, stackable, itemBless)
+	invItem.UseType = itemInfo.UseTypeID
+	invItem.Identified = true
+	if enchant > 0 {
+		invItem.EnchantLvl = int8(enchant)
+	}
+
+	if wasExisting {
+		handler.SendItemCountUpdate(sess, invItem)
+	} else {
+		handler.SendAddItem(sess, invItem)
+	}
+	handler.SendWeightUpdate(sess, player)
+
+	// 全服公告
+	if broadcast {
+		s.broadcastBoxDrop(player.Name, itemInfo.Name, count)
+	}
+}
+
+// broadcastBoxDrop 全服公告開箱獲得物品。
+func (s *ItemUseSystem) broadcastBoxDrop(playerName, itemName string, count int32) {
+	displayName := itemName
+	if count > 1 {
+		displayName = fmt.Sprintf("%s(%d)", itemName, count)
+	}
+	s.deps.World.AllPlayers(func(p *world.PlayerInfo) {
+		if p.Session != nil {
+			handler.SendServerMessageArgs(p.Session, 166, playerName, displayName)
+		}
+	})
+}
+
+// ActivateVIP 啟用 VIP 物品效果（同 type 互斥）。
+func (s *ItemUseSystem) ActivateVIP(sess *net.Session, player *world.PlayerInfo, invItem *world.InvItem, vip *data.ItemVIP) {
+	if player.ActiveVIP == nil {
+		player.ActiveVIP = make(map[int]int32)
+	}
+
+	// 同 type 互斥：移除舊的 VIP 效果
+	if oldObjID, ok := player.ActiveVIP[vip.Type]; ok {
+		oldItem := player.Inv.FindByObjectID(oldObjID)
+		if oldItem != nil {
+			if oldVIP := s.deps.ItemVIPs.Get(oldItem.ItemID); oldVIP != nil {
+				s.revertVIPStats(player, oldVIP)
+			}
+		}
+		delete(player.ActiveVIP, vip.Type)
+	}
+
+	// 套用新 VIP 屬性
+	s.applyVIPStats(player, vip)
+	player.ActiveVIP[vip.Type] = invItem.ObjectID
+	player.Dirty = true
+
+	// 發送屬性更新封包
+	s.sendVIPStatusUpdates(sess, player, vip)
+
+	// 播放特效
+	if vip.GfxID > 0 {
+		handler.SendSkillEffect(sess, player.CharID, vip.GfxID)
+	}
+
+	handler.SendSystemMessage(sess, "VIP 效果已啟用。")
+}
+
+// applyVIPStats 套用 VIP 屬性加成到 PlayerInfo。
+func (s *ItemUseSystem) applyVIPStats(p *world.PlayerInfo, vip *data.ItemVIP) {
+	p.Str += vip.AddStr
+	p.Dex += vip.AddDex
+	p.Con += vip.AddCon
+	p.Intel += vip.AddInt
+	p.Wis += vip.AddWis
+	p.Cha += vip.AddCha
+	p.AC -= vip.AddAC
+	p.MaxHP += vip.AddHP
+	p.MaxMP += vip.AddMP
+	p.HPR += vip.AddHPR
+	p.MPR += vip.AddMPR
+	p.DmgMod += vip.AddDmg
+	p.HitMod += vip.AddHit
+	p.BowDmgMod += vip.AddBowDmg
+	p.BowHitMod += vip.AddBowHit
+	p.MR += vip.AddMR
+	p.SP += vip.AddSP
+	p.FireRes += vip.AddFire
+	p.WaterRes += vip.AddWater
+	p.WindRes += vip.AddWind
+	p.EarthRes += vip.AddEarth
+	p.RegistStun += vip.AddStun
+	p.RegistStone += vip.AddStone
+	p.RegistSleep += vip.AddSleep
+	p.RegistFreeze += vip.AddFreeze
+	p.RegistSustain += vip.AddSustain
+	p.RegistBlind += vip.AddBlind
+}
+
+// revertVIPStats 移除 VIP 屬性加成。
+func (s *ItemUseSystem) revertVIPStats(p *world.PlayerInfo, vip *data.ItemVIP) {
+	p.Str -= vip.AddStr
+	p.Dex -= vip.AddDex
+	p.Con -= vip.AddCon
+	p.Intel -= vip.AddInt
+	p.Wis -= vip.AddWis
+	p.Cha -= vip.AddCha
+	p.AC += vip.AddAC
+	p.MaxHP -= vip.AddHP
+	p.MaxMP -= vip.AddMP
+	p.HPR -= vip.AddHPR
+	p.MPR -= vip.AddMPR
+	p.DmgMod -= vip.AddDmg
+	p.HitMod -= vip.AddHit
+	p.BowDmgMod -= vip.AddBowDmg
+	p.BowHitMod -= vip.AddBowHit
+	p.MR -= vip.AddMR
+	p.SP -= vip.AddSP
+	p.FireRes -= vip.AddFire
+	p.WaterRes -= vip.AddWater
+	p.WindRes -= vip.AddWind
+	p.EarthRes -= vip.AddEarth
+	p.RegistStun -= vip.AddStun
+	p.RegistStone -= vip.AddStone
+	p.RegistSleep -= vip.AddSleep
+	p.RegistFreeze -= vip.AddFreeze
+	p.RegistSustain -= vip.AddSustain
+	p.RegistBlind -= vip.AddBlind
+}
+
+// sendVIPStatusUpdates 根據 VIP 屬性變化發送對應的更新封包。
+func (s *ItemUseSystem) sendVIPStatusUpdates(sess *net.Session, p *world.PlayerInfo, vip *data.ItemVIP) {
+	// 六維 + HP/MP/AC → S_OwnCharStatus
+	if vip.AddStr != 0 || vip.AddDex != 0 || vip.AddCon != 0 ||
+		vip.AddInt != 0 || vip.AddWis != 0 || vip.AddCha != 0 ||
+		vip.AddHP != 0 || vip.AddMP != 0 || vip.AddAC != 0 {
+		handler.SendPlayerStatus(sess, p)
+	}
+
+	// AC + 元素抗性 → S_OwnCharAttrDef
+	if vip.AddAC != 0 || vip.AddFire != 0 || vip.AddWater != 0 ||
+		vip.AddWind != 0 || vip.AddEarth != 0 {
+		handler.SendAbilityScores(sess, p)
+	}
+
+	// SP + MR → S_SPMR
+	if vip.AddSP != 0 || vip.AddMR != 0 {
+		handler.SendMagicStatus(sess, byte(p.SP), uint16(p.MR))
+	}
+
+	// HP/MP 上限變化
+	if vip.AddHP != 0 {
+		handler.SendHpUpdate(sess, p)
+	}
+	if vip.AddMP != 0 {
+		handler.SendMpUpdate(sess, p)
+	}
 }

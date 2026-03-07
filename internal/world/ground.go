@@ -29,4 +29,5 @@ type GroundItem struct {
 	MapID      int16
 	OwnerID    int32 // CharID of dropper (0 = anyone can pick up)
 	TTL        int   // ticks remaining until auto-delete (0 = permanent)
+	NoExpire   bool  // true = 不自動消失（血盟小屋內物品）
 }

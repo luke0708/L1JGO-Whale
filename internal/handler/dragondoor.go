@@ -90,13 +90,7 @@ func HandleDragonDoorSelect(sess *net.Session, player *world.PlayerInfo, r *pack
 	}
 
 	// 消耗 1 把龍之鑰匙
-	removed := player.Inv.RemoveItem(invItem.ObjectID, 1)
-	if removed {
-		sendRemoveInventoryItem(sess, invItem.ObjectID)
-	} else {
-		sendItemCountUpdate(sess, invItem)
-	}
-	player.Dirty = true
+	deps.NpcSvc.ConsumeItem(sess, player, invItem.ObjectID, 1)
 
 	// 委派 DragonDoorSystem 生成門衛 NPC
 	npcID := dragonDoorNpcMap[selectDoor]

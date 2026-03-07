@@ -138,9 +138,18 @@ func HandleRankControl(sess *net.Session, r *packet.Reader, deps *Deps) {
 		if deps.Clan != nil {
 			deps.Clan.ChangeRank(sess, player, giveRank, targetName)
 		}
+	case 2:
+		// 查詢聯盟目錄（Java: C_Rank case 2）
+		handleAllianceQuery(sess, player, deps)
+	case 3:
+		// 聯盟邀請（Java: C_Rank case 3）
+		handleAllianceInvite(sess, player, deps)
+	case 4:
+		// 退出聯盟（Java: C_Rank case 4）
+		handleAllianceLeave(sess, player, deps)
 	case 5:
 		// 生存吶喊（Java: C_Rank case 5）
-		handleSurvivalShout(sess, player)
+		handleSurvivalShout(sess, player, deps)
 	case 9:
 		// Ctrl+Q 查詢限時地圖剩餘時間
 		// Java: pc.sendPackets(new S_PacketBoxMapTimer(pc))
@@ -153,7 +162,7 @@ func HandleRankControl(sess *net.Session, r *packet.Reader, deps *Deps) {
 // 效果：依飽食飽和持續時間回復 HP，然後飽食度歸零。
 // 1-29 分鐘: (分鐘數/100) × MaxHP
 // 30+ 分鐘: 依武器強化等級回復 20%-70%
-func handleSurvivalShout(sess *net.Session, player *world.PlayerInfo) {
+func handleSurvivalShout(sess *net.Session, player *world.PlayerInfo, deps *Deps) {
 	// 條件 1：飽食度必須 225
 	if player.Food < 225 {
 		SendSystemMessage(sess, "飽食度不足，無法使用生存的吶喊。")
@@ -212,11 +221,7 @@ func handleSurvivalShout(sess *net.Session, player *world.PlayerInfo) {
 	SendFoodUpdate(sess, player.Food)
 
 	// 回復 HP
-	player.HP += addHP
-	if player.HP > player.MaxHP {
-		player.HP = player.MaxHP
-	}
-	SendHpUpdate(sess, player)
+	deps.Clan.HealMember(sess, player, addHP)
 
 	// 特效音效（Java: S_SkillSound(4013)）
 	SendSkillEffect(sess, player.CharID, 4013)

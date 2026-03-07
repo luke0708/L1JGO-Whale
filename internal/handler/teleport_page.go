@@ -135,15 +135,8 @@ func executeTeleportPage(sess *net.Session, player *world.PlayerInfo, dest *data
 		}
 
 		// Deduct adena
-		adenaItem := player.Inv.FindByItemID(world.AdenaItemID)
-		if adenaItem != nil {
-			adenaItem.Count -= dest.Price
-			if adenaItem.Count <= 0 {
-				player.Inv.RemoveItem(adenaItem.ObjectID, 0)
-				sendRemoveInventoryItem(sess, adenaItem.ObjectID)
-			} else {
-				sendItemCountUpdate(sess, adenaItem)
-			}
+		if !deps.NpcSvc.ConsumeAdena(sess, player, dest.Price) {
+			return
 		}
 	}
 

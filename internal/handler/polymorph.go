@@ -113,9 +113,21 @@ func HandleHypertextInputResult(sess *net.Session, r *packet.Reader, deps *Deps)
 		return
 	}
 
+	// Route to inn rental handler if inn dialog is pending
+	if player.PendingInnNpcObjID != 0 {
+		HandleInnRental(sess, r, player, deps)
+		return
+	}
+
 	// Route to crafting amount handler if a batch dialog is pending
 	if player.PendingCraftAction != "" {
 		HandleCraftAmount(sess, r, player, deps)
+		return
+	}
+
+	// Route to auction bid handler if auction dialog is pending
+	if player.PendingAuctionHouseID > 0 {
+		HandleAuctionBid(sess, r, player, deps)
 		return
 	}
 

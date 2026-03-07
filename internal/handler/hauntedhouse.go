@@ -52,31 +52,3 @@ func onHauntedHouseGoal(sess *net.Session, player *world.PlayerInfo, deps *Deps)
 	deps.HauntedHouse.OnGoalReached(sess, player)
 }
 
-// GiveHauntedHouseReward 給予玩家鬼屋獎品（物品 41308）。Exported for system package usage.
-func GiveHauntedHouseReward(sess *net.Session, player *world.PlayerInfo, deps *Deps) {
-	itemInfo := deps.Items.Get(hauntedHouseReward)
-	if itemInfo == nil {
-		return
-	}
-
-	if player.Inv.IsFull() {
-		return
-	}
-
-	existing := player.Inv.FindByItemID(hauntedHouseReward)
-	wasExisting := existing != nil && itemInfo.Stackable
-
-	invItem := player.Inv.AddItem(
-		hauntedHouseReward, 1, itemInfo.Name, itemInfo.InvGfx,
-		itemInfo.Weight, itemInfo.Stackable, byte(itemInfo.Bless),
-	)
-
-	if wasExisting {
-		sendItemCountUpdate(sess, invItem)
-	} else {
-		sendAddItem(sess, invItem)
-	}
-
-	// S_ServerMessage 403: "%0を手に入れました。"（獲得 %0）
-	sendServerMessageS(sess, uint16(msgGotItem), invItem.Name)
-}

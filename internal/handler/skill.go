@@ -1,8 +1,6 @@
 package handler
 
 import (
-	"time"
-
 	"github.com/l1jgo/server/internal/data"
 	"github.com/l1jgo/server/internal/net"
 	"github.com/l1jgo/server/internal/net/packet"
@@ -83,91 +81,9 @@ func RemoveBuffAndRevert(target *world.PlayerInfo, skillID int32, deps *Deps) {
 	}
 }
 
-// RevertBuffStats 還原 buff 的所有屬性修改。純函式，不需要 Deps。
-// 供 system/item_use.go 呼叫。
-func RevertBuffStats(target *world.PlayerInfo, buff *world.ActiveBuff) {
-	target.AC -= buff.DeltaAC
-	target.Str -= buff.DeltaStr
-	target.Dex -= buff.DeltaDex
-	target.Con -= buff.DeltaCon
-	target.Wis -= buff.DeltaWis
-	target.Intel -= buff.DeltaIntel
-	target.Cha -= buff.DeltaCha
-	target.MaxHP -= buff.DeltaMaxHP
-	target.MaxMP -= buff.DeltaMaxMP
-	target.HitMod -= buff.DeltaHitMod
-	target.DmgMod -= buff.DeltaDmgMod
-	target.SP -= buff.DeltaSP
-	target.MR -= buff.DeltaMR
-	target.HPR -= buff.DeltaHPR
-	target.MPR -= buff.DeltaMPR
-	target.BowHitMod -= buff.DeltaBowHit
-	target.BowDmgMod -= buff.DeltaBowDmg
-	target.FireRes -= buff.DeltaFireRes
-	target.WaterRes -= buff.DeltaWaterRes
-	target.WindRes -= buff.DeltaWindRes
-	target.EarthRes -= buff.DeltaEarthRes
-	target.Dodge -= buff.DeltaDodge
-	if target.HP > target.MaxHP && target.MaxHP > 0 {
-		target.HP = target.MaxHP
-	}
-	if target.MP > target.MaxMP && target.MaxMP > 0 {
-		target.MP = target.MaxMP
-	}
-	if buff.SetInvisible {
-		target.Invisible = false
-	}
-	if buff.SetParalyzed {
-		target.Paralyzed = false
-	}
-	if buff.SetSleeped {
-		target.Sleeped = false
-	}
-}
-
 // ========================================================================
-//  Handler 內部共用輔助函式（death.go, skill_summon.go 等使用）
+//  Handler 內部共用輔助函式（death.go 等使用）
 // ========================================================================
-
-// consumeSkillResources 扣除 MP/HP/材料並設定冷卻。
-// 供 handler/skill_summon.go 的召喚技能使用。
-func consumeSkillResources(sess *net.Session, player *world.PlayerInfo, skill *data.SkillInfo) {
-	if skill.MpConsume > 0 {
-		player.MP -= int16(skill.MpConsume)
-		sendMpUpdate(sess, player)
-	}
-	if skill.HpConsume > 0 {
-		player.HP -= int16(skill.HpConsume)
-		sendHpUpdate(sess, player)
-	}
-	if skill.ItemConsumeID > 0 && skill.ItemConsumeCount > 0 {
-		slot := player.Inv.FindByItemID(int32(skill.ItemConsumeID))
-		if slot != nil {
-			removed := player.Inv.RemoveItem(slot.ObjectID, int32(skill.ItemConsumeCount))
-			if removed {
-				sendRemoveInventoryItem(sess, slot.ObjectID)
-			} else {
-				sendItemCountUpdate(sess, slot)
-			}
-			sendWeightUpdate(sess, player)
-		}
-	}
-	delay := skill.ReuseDelay
-	if delay <= 0 {
-		delay = 1000
-	}
-	player.SkillDelayUntil = time.Now().Add(time.Duration(delay) * time.Millisecond)
-}
-
-// ConsumeSkillResources 扣除 MP/HP/材料並設定冷卻。Exported for system package usage.
-func ConsumeSkillResources(sess *net.Session, player *world.PlayerInfo, skill *data.SkillInfo) {
-	consumeSkillResources(sess, player, skill)
-}
-
-// revertBuffStats 還原 buff 屬性。供 death.go, polymorph.go 等 handler 內部使用。
-func revertBuffStats(target *world.PlayerInfo, buff *world.ActiveBuff) {
-	RevertBuffStats(target, buff)
-}
 
 // cancelBuffIcon 取消 buff 圖示（發送 duration=0）。供 death.go 使用。
 func cancelBuffIcon(target *world.PlayerInfo, skillID int32, deps *Deps) {

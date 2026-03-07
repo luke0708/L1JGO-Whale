@@ -79,6 +79,22 @@ func HandleAttr(sess *net.Session, r *packet.Reader, deps *Deps) {
 
 	case 3590: // Lv85 護符欄位開通（NPC 81445 史奈普，自訂功能）
 		handleSlotUnlock(sess, player, data, accepted, 85, 82, 20_000_000, deps)
+
+	case 654: // 求婚回應（Java: C_Attr case 654）
+		HandleMarriageAccept(sess, player, data, accepted, deps)
+
+	case 653: // 離婚確認（Java: C_Attr case 653）
+		HandleDivorceConfirm(sess, player, accepted, deps)
+
+	case 512: // 血盟小屋改名（Java: C_Attr case 512）
+		// Java: readC() 已在上方讀取，接著 readS() 取得新名稱
+		houseName := r.ReadS()
+		if accepted && data != 0 {
+			HandleHouseRename(sess, player, data, houseName, deps)
+		}
+
+	case 223: // 聯盟邀請回應（Java: C_Attr case 223）— 暫存 stub
+		// TODO: 處理聯盟邀請接受/拒絕
 	}
 }
 
@@ -114,17 +130,12 @@ func handleSlotUnlock(sess *net.Session, player *world.PlayerInfo, pendingData i
 		return
 	}
 
-	// 金幣不足（AdenaItemID = 40308）
-	adena := player.Inv.FindByItemID(world.AdenaItemID)
-	if adena == nil || adena.Count < goldCost {
+	// 扣金幣（委派給 NpcServiceSystem）
+	if deps.NpcSvc == nil || !deps.NpcSvc.ConsumeAdena(sess, player, goldCost) {
 		SendServerMessage(sess, 3253)
 		sendHypertext(sess, player.CharID, "slot3")
 		return
 	}
-
-	// --- 扣金幣 ---
-	adena.Count -= goldCost
-	sendItemCountUpdate(sess, adena)
 
 	// --- 任務完成：寫 DB + 更新記憶體 ---
 	if deps.QuestRepo != nil {
@@ -139,10 +150,7 @@ func handleSlotUnlock(sess *net.Session, player *world.PlayerInfo, pendingData i
 			)
 		}
 	}
-	if player.QuestsDone == nil {
-		player.QuestsDone = make(map[int32]bool)
-	}
-	player.QuestsDone[questID] = true
+	player.SetQuestStep(questID, 255)
 
 	// --- 欄位圖示解鎖 + 特效 + 成功對話 ---
 	sendSlotExpansion(sess, questID)

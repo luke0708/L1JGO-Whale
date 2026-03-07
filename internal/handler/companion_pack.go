@@ -159,6 +159,41 @@ func sendDollTimer(sess *net.Session, seconds int32) {
 }
 
 // ========================================================================
+//  Hierarch packets — Java: S_NPCPack_Hierarch
+// ========================================================================
+
+// SendHierarchPack sends S_PUT_OBJECT (opcode 87) for a hierarch to the viewer.
+// Java: S_NPCPack_Hierarch — 格式與 doll 基本相同，包含主人名稱。
+func SendHierarchPack(viewer *net.Session, h *world.HierarchInfo, masterName string) {
+	w := packet.NewWriterWithOpcode(packet.S_OPCODE_PUT_OBJECT)
+	w.WriteH(uint16(h.X))
+	w.WriteH(uint16(h.Y))
+	w.WriteD(h.ID)
+	w.WriteH(uint16(h.GfxID))
+	w.WriteC(0)                   // status
+	w.WriteC(byte(h.Heading))
+	w.WriteC(0)                   // light size
+	w.WriteC(0)                   // move speed
+	w.WriteD(0)                   // exp
+	w.WriteH(0)                   // lawful
+	w.WriteS(h.NameID)            // name
+	w.WriteS("")                  // title
+	w.WriteC(0x00)                // status flags
+	w.WriteD(0)                   // reserved
+	w.WriteS("")                  // reserved string
+	w.WriteS(masterName)          // master name
+	w.WriteC(0x00)                // object classification
+	w.WriteC(0xFF)                // HP (always unknown)
+	w.WriteC(0x00)
+	w.WriteC(0x00)
+	w.WriteC(0x00)
+	w.WriteC(0xFF)
+	w.WriteC(0xFF)
+
+	viewer.Send(w.Bytes())
+}
+
+// ========================================================================
 //  Follower packets — Java: S_FollowerPack
 // ========================================================================
 

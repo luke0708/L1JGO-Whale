@@ -113,13 +113,8 @@ func HandleGiveItem(sess *net.Session, r *packet.Reader, deps *Deps) {
 		petType.CanTame(), petType.TamingItemID, invItem.ItemID, invItem.ItemID == petType.TamingItemID)
 
 	if petType.CanTame() && invItem.ItemID == petType.TamingItemID {
-		// 消耗馴服物品（正確處理可堆疊物品）
-		removed := player.Inv.RemoveItem(itemObjID, 1)
-		if removed {
-			sendRemoveInventoryItem(sess, itemObjID)
-		} else {
-			sendItemCountUpdate(sess, invItem)
-		}
+		// 消耗馴服物品
+		deps.NpcSvc.ConsumeItem(sess, player, itemObjID, 1)
 
 		if deps.PetLife != nil {
 			deps.PetLife.TameNpc(sess, player, npc)

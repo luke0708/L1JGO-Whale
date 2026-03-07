@@ -204,36 +204,8 @@ func handleCnBuyResult(sess *net.Session, r *packet.Reader, count int, player *w
 			return
 		}
 
-		// 扣除天寶幣
-		currency.Count -= price
-		player.Dirty = true
-		if currency.Count <= 0 {
-			player.Inv.RemoveItem(currency.ObjectID, 0)
-			sendRemoveInventoryItem(sess, currency.ObjectID)
-		} else {
-			sendItemCountUpdate(sess, currency)
-		}
-
-		// 給予物品
-		itemInfo := deps.Items.Get(cnItem.ItemID)
-		itemName := fmt.Sprintf("item#%d", cnItem.ItemID)
-		gfxID := int32(0)
-		weight := int32(0)
-		stackable := false
-		bless := byte(0)
-		if itemInfo != nil {
-			itemName = itemInfo.Name
-			gfxID = itemInfo.InvGfx
-			weight = itemInfo.Weight
-			stackable = itemInfo.Stackable
-			bless = byte(itemInfo.Bless)
-		}
-
-		newItem := player.Inv.AddItemWithID(0, cnItem.ItemID, actualCount, itemName, gfxID, weight, stackable, bless)
-		if cnItem.EnchantLevel > 0 {
-			newItem.EnchantLvl = int8(cnItem.EnchantLevel)
-		}
-		sendAddItem(sess, newItem, itemInfo)
+		// 委派給系統執行購買
+		deps.ShopCnMgr.BuyCnItem(sess, player, cnItem, buyCount, actualCount)
 	}
 }
 
@@ -268,41 +240,7 @@ func handleCnSellResult(sess *net.Session, r *packet.Reader, count int, player *
 			continue
 		}
 
-		// 限制回收數量
-		if sellCount > item.Count {
-			sellCount = item.Count
-		}
-
-		// 計算回收總價
-		totalPrice := int64(recyclePrice) * int64(sellCount)
-		if totalPrice > 2_000_000_000 {
-			totalPrice = 2_000_000_000
-		}
-		price := int32(totalPrice)
-
-		// 移除物品
-		if item.Stackable && item.Count > sellCount {
-			item.Count -= sellCount
-			player.Dirty = true
-			sendItemCountUpdate(sess, item)
-		} else {
-			player.Inv.RemoveItem(item.ObjectID, sellCount)
-			player.Dirty = true
-			sendRemoveInventoryItem(sess, item.ObjectID)
-		}
-
-		// 給予天寶幣
-		currencyInfo := deps.Items.Get(CnCurrencyItemID)
-		currencyName := "天寶"
-		gfxID := int32(0)
-		weight := int32(0)
-		if currencyInfo != nil {
-			currencyName = currencyInfo.Name
-			gfxID = currencyInfo.InvGfx
-			weight = currencyInfo.Weight
-		}
-
-		coinItem := player.Inv.AddItem(CnCurrencyItemID, price, currencyName, gfxID, weight, true, 0)
-		sendAddItem(sess, coinItem, currencyInfo)
+		// 委派給系統執行回收
+		deps.ShopCnMgr.SellCnItem(sess, player, item, sellCount, recyclePrice)
 	}
 }

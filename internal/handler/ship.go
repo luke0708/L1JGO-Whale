@@ -208,13 +208,7 @@ func HandleEnterShip(sess *net.Session, r *packet.Reader, deps *Deps) {
 		return
 	}
 
-	fullyRemoved := player.Inv.RemoveItem(ticket.ObjectID, 1)
-	if fullyRemoved {
-		sendRemoveInventoryItem(sess, ticket.ObjectID)
-	} else {
-		sendItemCountUpdate(sess, ticket)
-	}
-	sendWeightUpdate(sess, player)
+	deps.NpcSvc.ConsumeItem(sess, player, ticket.ObjectID, 1)
 
 	// 取消交易（Java: L1Trade.tradeCancel）
 	cancelTradeIfActive(player, deps)

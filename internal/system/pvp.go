@@ -128,7 +128,7 @@ func (s *PvPSystem) HandlePvPAttack(attacker, target *world.PlayerInfo) {
 		// 尖刺盔甲（skill 89）：PvP 近戰命中時 10% 機率破壞攻擊者武器
 		// Java: L1AttackPc.damagePcWeaponDurability — hasSkillEffect(89) → 10% → receiveDamage
 		if target.HasBuff(89) && world.RandInt(100) < 10 {
-			handler.DamageWeaponDurability(attacker.Session, attacker, s.deps)
+			damageWeaponDurability(attacker, s.deps)
 			handler.BroadcastToPlayers(nearby, handler.BuildSkillEffect(target.CharID, 10712))
 		}
 

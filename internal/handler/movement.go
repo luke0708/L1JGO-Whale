@@ -119,6 +119,13 @@ func HandleMove(sess *net.Session, r *packet.Reader, deps *Deps) {
 		deps.MapData.SetImpassable(player.MapID, destX, destY, true)
 	}
 
+	// ── 陷阱觸發檢查（Java: WorldTrap.onPlayerMoved()）──
+	if deps.TrapMgr != nil {
+		if traps := deps.TrapMgr.GetTrapsAt(destX, destY, player.MapID); len(traps) > 0 {
+			handleTrapTrigger(sess, player, traps, deps)
+		}
+	}
+
 	// Auto-cancel trade if partner is too far (> 15 tiles or different map)
 	if player.TradePartnerID != 0 {
 		partner := deps.World.GetByCharID(player.TradePartnerID)
@@ -211,7 +218,20 @@ func rejectMove(sess *net.Session, player *world.PlayerInfo, ws *world.State, de
 		}
 	}
 
-	// 7. 重發所有附近隨從 + 封鎖格子
+	// 7. 重發所有附近隨身祭司
+	nearbyHierarchs := ws.GetNearbyHierarchs(px, py, player.MapID)
+	for _, h := range nearbyHierarchs {
+		masterName := ""
+		if m := ws.GetByCharID(h.OwnerCharID); m != nil {
+			masterName = m.Name
+		}
+		SendHierarchPack(sess, h, masterName)
+		if player.Known != nil {
+			player.Known.Hierarchs[h.ID] = world.KnownPos{X: h.X, Y: h.Y}
+		}
+	}
+
+	// 8. 重發所有附近隨從 + 封鎖格子
 	nearbyFollowers := ws.GetNearbyFollowers(px, py, player.MapID)
 	for _, f := range nearbyFollowers {
 		SendFollowerPack(sess, f)

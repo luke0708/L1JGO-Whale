@@ -75,6 +75,8 @@ max_exclude_list = 16              # 黑名單上限
 initial_food = 40                  # 建角/重生初始飽食度
 base_ac = 10                       # 基礎防禦等級
 max_food_satiety = 225             # 飽食度上限
+house_hpr_bonus = 10               # 血盟小屋 HP 回復加成（Java: HOMEHPR）
+house_mpr_bonus = 10               # 血盟小屋 MP 回復加成（Java: HOMEMPR）
 
 # ── Lua 腳本引擎設定 ──────────────────────────────────────
 [lua]

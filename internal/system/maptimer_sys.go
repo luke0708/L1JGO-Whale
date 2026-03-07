@@ -50,7 +50,7 @@ func (s *MapTimerSystem) Update(_ time.Duration) {
 		}
 		p.MapTimerTickAcc = 0
 
-		expired := handler.TickMapTimer(p)
+		expired := s.TickMapTimer(p)
 		if expired {
 			// 時間到 → 強制傳送到地圖出口
 			grp := handler.GetMapTimerGroup(p.MapID)
@@ -71,10 +71,10 @@ func (s *MapTimerSystem) resetAllOnlinePlayers() {
 
 	// 1. 重置所有線上玩家
 	s.world.AllPlayers(func(p *world.PlayerInfo) {
-		handler.ResetAllMapTimers(p)
+		s.ResetAllMapTimers(p)
 		// 若仍在限時地圖中，重新啟動計時器
 		if grp := handler.GetMapTimerGroup(p.MapID); grp != nil {
-			handler.OnEnterTimedMap(p.Session, p, p.MapID)
+			s.OnEnterTimedMap(p, p.MapID)
 		}
 	})
 
@@ -84,4 +84,72 @@ func (s *MapTimerSystem) resetAllOnlinePlayers() {
 	if err := s.deps.CharRepo.ResetAllMapTimes(ctx); err != nil {
 		s.deps.Log.Error("每日重置限時地圖 DB 失敗", zap.Error(err))
 	}
+}
+
+// --- MapTimerManager 介面實作 ---
+
+// OnEnterTimedMap 玩家進入限時地圖時呼叫。
+// 計算剩餘時間，發送 S_MapTimer 封包，啟動計時。
+// Java: Teleportation.teleportation() 中的 isTimingMap 檢查。
+func (s *MapTimerSystem) OnEnterTimedMap(player *world.PlayerInfo, mapID int16) {
+	grp := handler.GetMapTimerGroup(mapID)
+	if grp == nil {
+		// 離開限時地圖 → 停止計時
+		player.MapTimerGroupIdx = -1
+		return
+	}
+
+	if player.MapTimeUsed == nil {
+		player.MapTimeUsed = make(map[int]int)
+	}
+	usedSec := player.MapTimeUsed[grp.OrderID]
+	remaining := grp.MaxTimeSec - usedSec
+	if remaining <= 0 {
+		remaining = 0
+	}
+
+	player.MapTimerGroupIdx = grp.OrderID
+	player.MapTimerRemaining = remaining
+
+	// 發送 S_MapTimer — 客戶端左上角顯示倒計時
+	handler.SendMapTimer(player.Session, remaining)
+}
+
+// TickMapTimer 每秒呼叫一次，遞減限時地圖計時。
+// 返回 true 表示時間到需強制傳送。
+// Java: MapTimerThread.MapTimeCheck()。
+func (s *MapTimerSystem) TickMapTimer(player *world.PlayerInfo) (expired bool) {
+	if player.MapTimerGroupIdx <= 0 {
+		return false // 不在限時地圖中
+	}
+	if player.Dead {
+		return false // 死亡不計時（Java: pc.isDead() → continue）
+	}
+
+	// 遞增已使用時間
+	if player.MapTimeUsed == nil {
+		player.MapTimeUsed = make(map[int]int)
+	}
+	player.MapTimeUsed[player.MapTimerGroupIdx]++
+	player.MapTimerRemaining--
+
+	if player.MapTimerRemaining <= 0 {
+		return true // 時間到
+	}
+
+	// 每分鐘發送一次更新（Java: if (leftTime % 60) == 0）
+	if player.MapTimerRemaining%60 == 0 {
+		handler.SendMapTimer(player.Session, player.MapTimerRemaining)
+	}
+	return false
+}
+
+// ResetAllMapTimers 日結重置所有限時地圖時間。
+// Java: ServerResetMapTimer.ResetTimingMap()。
+func (s *MapTimerSystem) ResetAllMapTimers(player *world.PlayerInfo) {
+	for k := range player.MapTimeUsed {
+		delete(player.MapTimeUsed, k)
+	}
+	player.MapTimerRemaining = 0
+	player.MapTimerGroupIdx = -1
 }

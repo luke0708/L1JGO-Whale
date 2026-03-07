@@ -124,6 +124,19 @@ func (m *ClanManager) IsLeader(charID int32) bool {
 	return clan != nil && clan.LeaderID == charID
 }
 
+// FindClanByHouse 依住宅 ID 找出擁有該住宅的血盟（無則回傳 nil）。
+func (m *ClanManager) FindClanByHouse(houseID int32) *ClanInfo {
+	if houseID == 0 {
+		return nil
+	}
+	for _, clan := range m.clans {
+		if clan.HasHouse == houseID {
+			return clan
+		}
+	}
+	return nil
+}
+
 // AddClan registers a clan in memory. Called after DB insert succeeds.
 func (m *ClanManager) AddClan(clan *ClanInfo) {
 	m.clans[clan.ClanID] = clan

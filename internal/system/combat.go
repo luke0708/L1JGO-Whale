@@ -184,6 +184,8 @@ func (s *CombatSystem) processMeleeAttack(sessID uint64, targetID int32) *handle
 			procDmg := processWeaponSkillProc(player, npc, wpn.ItemID, nearby, s.deps)
 			damage += procDmg
 		}
+		// 娃娃技能觸發（Java: L1AttackPc 迴圈 getDolls → startDollSkill）
+		damage += processDollSkillProc(player, npc, nearby, s.deps)
 	}
 
 	// 廣播攻擊動畫
@@ -209,7 +211,7 @@ func (s *CombatSystem) processMeleeAttack(sessID uint64, targetID int32) *handle
 		}
 
 		// 武器耐久損耗（Java: L1Attack.damageNpcWeaponDurability）
-		handler.DamageWeaponDurability(player.Session, player, s.deps)
+		damageWeaponDurability(player, s.deps)
 
 		// 受傷累加仇恨（Java: L1HateList.add）
 		AddHate(npc, sessID, damage)
@@ -375,6 +377,8 @@ func (s *CombatSystem) processRangedAttack(sessID uint64, targetID int32) *handl
 			procDmg := processWeaponSkillProc(player, npc, wpn.ItemID, nearby, s.deps)
 			damage += procDmg
 		}
+		// 娃娃技能觸發（Java: L1AttackPc 迴圈 getDolls → startDollSkill）
+		damage += processDollSkillProc(player, npc, nearby, s.deps)
 	}
 
 	// 廣播遠程攻擊動畫（含箭矢投射物）
@@ -405,7 +409,7 @@ func (s *CombatSystem) processRangedAttack(sessID uint64, targetID int32) *handl
 		}
 
 		// 武器耐久損耗（遠程也會磨損武器）
-		handler.DamageWeaponDurability(player.Session, player, s.deps)
+		damageWeaponDurability(player, s.deps)
 
 		// 受傷累加仇恨
 		AddHate(npc, sessID, damage)
@@ -762,4 +766,31 @@ func BreakNpcSleep(npc *world.NpcInfo, ws *world.State) {
 	npc.RemoveDebuff(62)  // 沉睡之霧
 	npc.RemoveDebuff(66)  // 沉睡之霧（內部 ID）
 	npc.RemoveDebuff(103) // 暗黑盲咒
+}
+
+// damageWeaponDurability 武器耐久損耗（Java: L1Attack.damageNpcWeaponDurability）。
+// 透過 Lua 計算損耗機率與最大耐久，在 system 層修改武器狀態。
+func damageWeaponDurability(player *world.PlayerInfo, deps *handler.Deps) {
+	wpn := player.Equip.Weapon()
+	if wpn == nil {
+		return
+	}
+
+	result := deps.Scripting.CalcDurabilityDamage(scripting.DurabilityContext{
+		EnchantLvl:        int(wpn.EnchantLvl),
+		Bless:             int(wpn.Bless),
+		CurrentDurability: int(wpn.Durability),
+	})
+
+	if !result.ShouldDamage {
+		return
+	}
+
+	wpn.Durability++
+	maxDur := int8(result.MaxDurability)
+	if wpn.Durability > maxDur {
+		wpn.Durability = maxDur
+	}
+
+	handler.SendItemCountUpdate(player.Session, wpn)
 }

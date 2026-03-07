@@ -630,6 +630,16 @@ func (s *InputSystem) cleanupCompanions(player *world.PlayerInfo) {
 		}
 	}
 
+	// Remove hierarch (no persistence — item-based, disappears on logout)
+	if h := ws.GetHierarchByOwner(player.CharID); h != nil {
+		ws.RemoveHierarch(h.ID)
+		nearby := ws.GetNearbyPlayersAt(h.X, h.Y, h.MapID)
+		for _, viewer := range nearby {
+			sendCompanionEffectPacket(viewer.Session, h.ID, 5936)
+			sendRemoveCompanionPacket(viewer.Session, h.ID)
+		}
+	}
+
 	// Remove pets — save to DB before removal (pets persist across sessions)
 	for _, pet := range ws.GetPetsByOwner(player.CharID) {
 		// Save pet state to DB

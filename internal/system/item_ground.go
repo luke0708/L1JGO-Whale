@@ -107,6 +107,8 @@ func (s *ItemGroundSystem) DropItem(sess *net.Session, player *world.PlayerInfo,
 	}
 
 	// 在玩家位置建立地面物品
+	// Java: L1GroundInventory — 血盟小屋範圍內物品不自動消失
+	inHouse := s.deps.Houses != nil && s.deps.Houses.FindHouseAt(player.X, player.Y, player.MapID) != nil
 	gndItem := &world.GroundItem{
 		ID:         world.NextGroundItemID(),
 		ItemID:     itemID,
@@ -119,6 +121,7 @@ func (s *ItemGroundSystem) DropItem(sess *net.Session, player *world.PlayerInfo,
 		MapID:      player.MapID,
 		OwnerID:    player.CharID,
 		TTL:        5 * 60 * 5, // 5 分鐘（200ms tick）
+		NoExpire:   inHouse,
 	}
 	s.deps.World.AddGroundItem(gndItem)
 

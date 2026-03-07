@@ -2415,6 +2415,49 @@ func (s *SkillSystem) revertBuffStats(target *world.PlayerInfo, buff *world.Acti
 	}
 }
 
+// RevertBuffStats implements handler.SkillManager — 還原 buff 的所有屬性修改（Exported）。
+func (s *SkillSystem) RevertBuffStats(target *world.PlayerInfo, buff *world.ActiveBuff) {
+	s.revertBuffStats(target, buff)
+}
+
+// ConsumeSkillResources implements handler.SkillManager — 扣除 MP/HP/材料並設定冷卻（Exported）。
+func (s *SkillSystem) ConsumeSkillResources(sess *net.Session, player *world.PlayerInfo, skill *data.SkillInfo) {
+	s.consumeSkillResources(sess, player, skill)
+}
+
+// ApplyBuffStats implements handler.SkillManager — 套用 buff 屬性加成（靜默，不發送封包）。
+func (s *SkillSystem) ApplyBuffStats(player *world.PlayerInfo, buff *world.ActiveBuff) {
+	player.AC += buff.DeltaAC
+	player.Str += buff.DeltaStr
+	player.Dex += buff.DeltaDex
+	player.Con += buff.DeltaCon
+	player.Wis += buff.DeltaWis
+	player.Intel += buff.DeltaIntel
+	player.Cha += buff.DeltaCha
+	player.MaxHP += buff.DeltaMaxHP
+	player.MaxMP += buff.DeltaMaxMP
+	player.HitMod += buff.DeltaHitMod
+	player.DmgMod += buff.DeltaDmgMod
+	player.SP += buff.DeltaSP
+	player.MR += buff.DeltaMR
+	player.HPR += buff.DeltaHPR
+	player.MPR += buff.DeltaMPR
+	player.BowHitMod += buff.DeltaBowHit
+	player.BowDmgMod += buff.DeltaBowDmg
+	player.Dodge += buff.DeltaDodge
+	player.FireRes += buff.DeltaFireRes
+	player.WaterRes += buff.DeltaWaterRes
+	player.WindRes += buff.DeltaWindRes
+	player.EarthRes += buff.DeltaEarthRes
+	player.RegistSustain += buff.DeltaRegistSustain
+	player.RegistFreeze += buff.DeltaRegistFreeze
+	player.RegistStun += buff.DeltaRegistStun
+	player.RegistStone += buff.DeltaRegistStone
+	player.RegistBlind += buff.DeltaRegistBlind
+	player.RegistSleep += buff.DeltaRegistSleep
+	player.MagicCritical += buff.DeltaMagicCritical
+}
+
 // sendSpeedToAll 向自己和附近玩家發送速度封包。
 func (s *SkillSystem) sendSpeedToAll(target *world.PlayerInfo, speedType byte, duration uint16) {
 	sendSpeedPacket(target.Session, target.CharID, speedType, duration)

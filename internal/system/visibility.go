@@ -41,6 +41,7 @@ func (s *VisibilitySystem) Update(_ time.Duration) {
 		s.updateNpcVisibility(p)
 		s.updateSummonVisibility(p)
 		s.updateDollVisibility(p)
+		s.updateHierarchVisibility(p)
 		s.updateFollowerVisibility(p)
 		s.updatePetVisibility(p)
 		s.updateGroundItemVisibility(p)
@@ -185,6 +186,35 @@ func (s *VisibilitySystem) updateDollVisibility(p *world.PlayerInfo) {
 		if _, still := currentSet[id]; !still {
 			handler.SendRemoveObject(p.Session, id)
 			delete(p.Known.Dolls, id)
+		}
+	}
+}
+
+// --- 隨身祭司 AOI ---
+
+func (s *VisibilitySystem) updateHierarchVisibility(p *world.PlayerInfo) {
+	nearby := s.world.GetNearbyHierarchs(p.X, p.Y, p.MapID)
+
+	currentSet := make(map[int32]struct{}, len(nearby))
+	for _, h := range nearby {
+		currentSet[h.ID] = struct{}{}
+
+		if _, known := p.Known.Hierarchs[h.ID]; !known {
+			masterName := ""
+			if m := s.world.GetByCharID(h.OwnerCharID); m != nil {
+				masterName = m.Name
+			}
+			handler.SendHierarchPack(p.Session, h, masterName)
+			p.Known.Hierarchs[h.ID] = world.KnownPos{X: h.X, Y: h.Y}
+		} else {
+			p.Known.Hierarchs[h.ID] = world.KnownPos{X: h.X, Y: h.Y}
+		}
+	}
+
+	for id := range p.Known.Hierarchs {
+		if _, still := currentSet[id]; !still {
+			handler.SendRemoveObject(p.Session, id)
+			delete(p.Known.Hierarchs, id)
 		}
 	}
 }

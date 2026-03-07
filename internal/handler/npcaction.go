@@ -3,7 +3,7 @@ package handler
 import (
 	"fmt"
 	"math"
-	"math/rand"
+	"strconv"
 	"strings"
 
 	"github.com/l1jgo/server/internal/data"
@@ -12,6 +12,16 @@ import (
 	"github.com/l1jgo/server/internal/world"
 	"go.uber.org/zap"
 )
+
+// parseInt32 解析字串為 int32，失敗回傳 0。
+func parseInt32(s string) int32 {
+	s = strings.TrimSpace(s)
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return 0
+	}
+	return int32(v)
+}
 
 // HandleNpcAction processes C_HACTION (opcode 125) — player clicks a button in NPC dialog.
 // Also handles S_Message_YN (yes/no dialog) responses — client sends objectID=yesNoCount.
@@ -33,6 +43,8 @@ func HandleNpcAction(sess *net.Session, r *packet.Reader, deps *Deps) {
 	// Clear pending state — any new NPC interaction overrides
 	player.PendingCraftAction = ""
 	player.FireSmithNpcObjID = 0
+	player.PendingAuctionHouseID = 0
+	player.PendingInnNpcObjID = 0
 
 	// --- Summon ring selection: numeric string response from "summonlist" dialog ---
 	// Java: L1ActionPc.java checks cmd.matches("[0-9]+") && isSummonMonster().
@@ -71,10 +83,35 @@ func HandleNpcAction(sess *net.Session, r *packet.Reader, deps *Deps) {
 		return
 	}
 
+	// Java C_NPCAction.java:183-187 — L1AuctionBoard 封包多一個 readS()，
+	// 合併為 "cmd,extra"（如 "select,262145"）。不讀會導致後續封包位移錯誤。
+	if npc.Impl == "L1AuctionBoard" {
+		extra := r.ReadS()
+		if extra != "" {
+			action = action + "," + extra
+		}
+		if handleAuctionAction(sess, player, objID, action, deps) {
+			return
+		}
+		return
+	}
+
 	lowerAction := strings.ToLower(action)
 
 	// Auto-cancel trade when interacting with NPC
 	cancelTradeIfActive(player, deps)
+
+	// L1Housekeeper（管家 NPC）— 管家動作優先處理
+	if npc.Impl == "L1Housekeeper" {
+		if handleHousekeeperAction(sess, player, objID, npc.NpcID, lowerAction, deps) {
+			return
+		}
+	}
+
+	// 旅館 NPC — "room" / "hall" / "return" / "enter" 動作
+	if handleInnAction(sess, player, objID, npc.NpcID, lowerAction, deps) {
+		return
+	}
 
 	// Paginated teleporter NPC (e.g., NPC 91053): route all actions to paged handler
 	if deps.TeleportPages != nil && deps.TeleportPages.IsPageTeleportNpc(npc.NpcID) {
@@ -203,6 +240,21 @@ func HandleNpcAction(sess *net.Session, r *packet.Reader, deps *Deps) {
 
 	default:
 		// ---------- NPC 專屬動作（依 NPC ID 分派） ----------
+
+		// 寵物比賽管理人（NPC 80088）— Java: Npc_PetWar.action()
+		// 動作格式: "ent,,<amuletObjID>"（客戶端 petmatcher HTML 生成）
+		if npc.NpcID == 80088 && strings.HasPrefix(lowerAction, "ent") {
+			handlePetMatchEntry(sess, player, action, deps)
+			return
+		}
+
+		// 排名 NPC（80026-80029）動作處理
+		if isRankingNpc(npc.NpcID) {
+			if handleRankingNpcAction(sess, player, objID, npc, action, deps) {
+				return
+			}
+		}
+
 		if npc.NpcID == 81445 { // 欄位開放專家 史奈普
 			handleSlotNpc(sess, player, objID, lowerAction, deps)
 			return
@@ -218,6 +270,11 @@ func HandleNpcAction(sess *net.Session, r *packet.Reader, deps *Deps) {
 		// Check if this is a polymorph NPC form (data-driven from npc_services.yaml)
 		if polyID := deps.NpcServices.GetPolyForm(lowerAction); polyID > 0 {
 			handleNpcPoly(sess, player, polyID, deps)
+			return
+		}
+
+		// 任務 NPC 動作（YAML 驅動的任務對話系統）
+		if handleQuestNpcAction(sess, player, objID, npc.NpcID, action, deps) {
 			return
 		}
 
@@ -416,6 +473,11 @@ func sendHypertextWithData(sess *net.Session, objID int32, htmlID string, data [
 	sess.Send(w.Bytes())
 }
 
+// SendHypertextWithData 匯出 sendHypertextWithData — 供 system 套件傳送帶資料的 HTML。
+func SendHypertextWithData(sess *net.Session, objID int32, htmlID string, data []string) {
+	sendHypertextWithData(sess, objID, htmlID, data)
+}
+
 // sendNoSell sends S_HYPERTEXT with "nosell" HTML to indicate NPC doesn't trade.
 func sendNoSell(sess *net.Session, objID int32) {
 	sendHypertext(sess, objID, "nosell")
@@ -433,37 +495,10 @@ func handleTeleport(sess *net.Session, player *world.PlayerInfo, npcID int32, ac
 		return
 	}
 
-	// Check adena cost
-	if dest.Price > 0 {
-		currentGold := player.Inv.GetAdena()
-		if currentGold < dest.Price {
-			sendServerMessage(sess, 189) // "金幣不足" (Insufficient adena)
-			return
-		}
-
-		// Deduct adena
-		adenaItem := player.Inv.FindByItemID(world.AdenaItemID)
-		if adenaItem != nil {
-			adenaItem.Count -= dest.Price
-			if adenaItem.Count <= 0 {
-				player.Inv.RemoveItem(adenaItem.ObjectID, 0)
-				sendRemoveInventoryItem(sess, adenaItem.ObjectID)
-			} else {
-				sendItemCountUpdate(sess, adenaItem)
-			}
-		}
+	// 委派給 NpcServiceSystem 處理扣費 + 傳送
+	if deps.NpcSvc != nil {
+		deps.NpcSvc.NpcTeleportWithCost(sess, player, dest, 0)
 	}
-
-	// 出發特效 + 延遲 2 tick（400ms）傳送，讓客戶端播完特效動畫
-	SendEffectOnPlayer(sess, player.CharID, 169)
-	nearby := deps.World.GetNearbyPlayers(player.X, player.Y, player.MapID, sess.ID)
-	for _, viewer := range nearby {
-		SendEffectOnPlayer(viewer.Session, player.CharID, 169)
-	}
-	player.ScrollTPTick = 2
-	player.ScrollTPX = dest.X
-	player.ScrollTPY = dest.Y
-	player.ScrollTPMap = dest.MapID
 
 	deps.Log.Info(fmt.Sprintf("玩家傳送  角色=%s  動作=%s  x=%d  y=%d  地圖=%d  花費=%d", player.Name, action, dest.X, dest.Y, dest.MapID, dest.Price))
 }
@@ -697,7 +732,7 @@ func teleportPlayer(sess *net.Session, player *world.PlayerInfo, x, y int32, map
 	}
 
 	// 限時地圖偵測（Java: Teleportation.teleportation() 中的 isTimingMap 檢查）
-	OnEnterTimedMap(sess, player, mapID)
+	OnEnterTimedMap(sess, player, mapID, deps)
 
 	// Release client teleport lock (Java: S_Paralysis always sent in finally block).
 	sendTeleportUnlock(sess)
@@ -753,7 +788,7 @@ func handleNpcActionZero(sess *net.Session, player *world.PlayerInfo, npc *world
 
 	// Check if this NPC is a healer
 	if healer := deps.NpcServices.GetHealer(npc.NpcID); healer != nil {
-		execHeal(sess, player, healer, deps)
+		deps.NpcSvc.NpcFullHeal(sess, player, npc.NpcID)
 		return
 	}
 
@@ -764,144 +799,41 @@ func handleNpcActionZero(sess *net.Session, player *world.PlayerInfo, npc *world
 	}
 }
 
-// handleNpcFullHeal — Full heal NPC. Parameters from npc_services.yaml.
+// handleNpcFullHeal — 委派給 NpcServiceSystem 處理 NPC 完整治療。
 func handleNpcFullHeal(sess *net.Session, player *world.PlayerInfo, npc *world.NpcInfo, deps *Deps) {
-	if healer := deps.NpcServices.GetHealer(npc.NpcID); healer != nil {
-		execHeal(sess, player, healer, deps)
-		return
+	if deps.NpcSvc != nil {
+		deps.NpcSvc.NpcFullHeal(sess, player, npc.NpcID)
 	}
-	// Generic full heal for other healer NPCs not in YAML
-	player.HP = player.MaxHP
-	player.MP = player.MaxMP
-	sendHpUpdate(sess, player)
-	sendMpUpdate(sess, player)
-	sendServerMessage(sess, 77) // "你覺得舒服多了"
-	broadcastEffect(sess, player, 830, deps)
-	UpdatePartyMiniHP(player, deps)
 }
 
-// execHeal executes a heal service based on YAML-defined healer parameters.
-func execHeal(sess *net.Session, player *world.PlayerInfo, h *data.HealerDef, deps *Deps) {
-	// Check cost
-	if h.Cost > 0 {
-		if !consumeAdena(player, h.Cost) {
-			sendServerMessageArgs(sess, 337, "$4") // "金幣不足"
-			return
-		}
-		sendAdenaUpdate(sess, player)
-	}
-
-	// Apply heal
-	switch h.HealType {
-	case "random":
-		healRange := h.HealMax - h.HealMin + 1
-		healAmt := int16(rand.Intn(healRange) + h.HealMin)
-		if player.HP < player.MaxHP {
-			player.HP += healAmt
-			if player.HP > player.MaxHP {
-				player.HP = player.MaxHP
-			}
-		}
-		sendHpUpdate(sess, player)
-	case "full":
-		if h.Target == "hp_mp" || h.Target == "hp" {
-			player.HP = player.MaxHP
-			sendHpUpdate(sess, player)
-		}
-		if h.Target == "hp_mp" || h.Target == "mp" {
-			player.MP = player.MaxMP
-			sendMpUpdate(sess, player)
-		}
-		UpdatePartyMiniHP(player, deps)
-	}
-
-	sendServerMessage(sess, h.MsgID)
-	broadcastEffect(sess, player, h.Gfx, deps)
-}
-
-// handleNpcWeaponEnchant — Weapon enchanter NPC. Parameters from npc_services.yaml.
+// handleNpcWeaponEnchant — 委派給 NpcServiceSystem 處理 NPC 武器附魔。
 func handleNpcWeaponEnchant(sess *net.Session, player *world.PlayerInfo, deps *Deps) {
-	we := deps.NpcServices.WeaponEnchant()
-	weapon := player.Equip.Weapon()
-	if weapon == nil {
-		sendServerMessage(sess, 79) // "沒有任何事情發生"
-		return
+	if deps.NpcSvc != nil {
+		deps.NpcSvc.NpcWeaponEnchant(sess, player)
 	}
-
-	// If already has enchant, cancel old bonus first
-	if weapon.DmgByMagic > 0 && weapon.DmgMagicExpiry > 0 {
-		weapon.DmgByMagic = 0
-		weapon.DmgMagicExpiry = 0
-	}
-
-	weapon.DmgByMagic = we.DmgBonus
-	weapon.DmgMagicExpiry = we.DurationSec * 5 // seconds → ticks
-
-	recalcEquipStats(sess, player, deps)
-	broadcastEffect(sess, player, we.Gfx, deps)
-	sendServerMessageArgs(sess, 161, weapon.Name, "$245", "$247")
 }
 
-// handleNpcArmorEnchant — Armor enchanter NPC. Parameters from npc_services.yaml.
+// handleNpcArmorEnchant — 委派給 NpcServiceSystem 處理 NPC 防具附魔。
 func handleNpcArmorEnchant(sess *net.Session, player *world.PlayerInfo, deps *Deps) {
-	ae := deps.NpcServices.ArmorEnchant()
-	armor := player.Equip.Get(world.SlotArmor)
-	if armor == nil {
-		sendServerMessage(sess, 79) // "沒有任何事情發生"
-		return
+	if deps.NpcSvc != nil {
+		deps.NpcSvc.NpcArmorEnchant(sess, player)
 	}
-
-	// If already has enchant, cancel old bonus first
-	if armor.AcByMagic > 0 && armor.AcMagicExpiry > 0 {
-		armor.AcByMagic = 0
-		armor.AcMagicExpiry = 0
-	}
-
-	armor.AcByMagic = ae.AcBonus
-	armor.AcMagicExpiry = ae.DurationSec * 5 // seconds → ticks
-
-	recalcEquipStats(sess, player, deps)
-	broadcastEffect(sess, player, ae.Gfx, deps)
-	sendServerMessageArgs(sess, 161, armor.Name, "$245", "$247")
 }
 
-// handleNpcPoly — Polymorph NPC. Cost/duration from npc_services.yaml.
+// handleNpcPoly — 委派給 NpcServiceSystem 處理 NPC 變身。
 func handleNpcPoly(sess *net.Session, player *world.PlayerInfo, polyID int32, deps *Deps) {
-	poly := deps.NpcServices.Polymorph()
-	if !consumeAdena(player, poly.Cost) {
-		sendServerMessageArgs(sess, 337, "$4") // "金幣不足"
-		return
-	}
-	sendAdenaUpdate(sess, player)
-	if deps.Polymorph != nil {
-		deps.Polymorph.DoPoly(player, polyID, poly.DurationSec, data.PolyCauseNPC)
+	if deps.NpcSvc != nil {
+		deps.NpcSvc.NpcPoly(sess, player, polyID)
 	}
 }
 
-// consumeAdena deducts adena from player inventory. Returns false if insufficient.
-func consumeAdena(player *world.PlayerInfo, amount int32) bool {
-	adena := player.Inv.FindByItemID(world.AdenaItemID)
-	if adena == nil || adena.Count < amount {
-		return false
-	}
-	adena.Count -= amount
-	return true
-}
-
-// sendAdenaUpdate sends the updated adena count to the client after consumption.
+// sendAdenaUpdate 發送金幣數量更新封包。
 func sendAdenaUpdate(sess *net.Session, player *world.PlayerInfo) {
 	adena := player.Inv.FindByItemID(world.AdenaItemID)
 	if adena != nil {
 		sendItemCountUpdate(sess, adena)
-	} else {
-		// Adena fully consumed — should have been removed, but just in case
 	}
 	sendWeightUpdate(sess, player)
-}
-
-// ConsumeAdena 匯出 consumeAdena — 供 system 套件扣除金幣。
-func ConsumeAdena(player *world.PlayerInfo, amount int32) bool {
-	return consumeAdena(player, amount)
 }
 
 // SendAdenaUpdate 匯出 sendAdenaUpdate — 供 system 套件更新金幣顯示。
@@ -1471,146 +1403,37 @@ func handleSlotNpc(sess *net.Session, player *world.PlayerInfo, npcObjID int32, 
 
 // ---------- 物品升級合成系統 ----------
 
-// handleItemUpgrade 處理物品升級合成。
-// Java: L1UpgradeItem — 驗證材料 → 消耗 → 機率判定 → 給予/刪除/失敗。
+// handleItemUpgrade 委派給 NpcServiceSystem 處理物品升級合成。
 func handleItemUpgrade(sess *net.Session, player *world.PlayerInfo, upg *data.ItemUpgrade, deps *Deps) {
-	// 1. 驗證主物品
-	mainItem := player.Inv.FindByItemID(upg.MainItemID)
-	if mainItem == nil || mainItem.Count < upg.MainItemCount {
-		SendSystemMessage(sess, "缺少必要的主要材料。")
+	if deps.NpcSvc != nil {
+		deps.NpcSvc.NpcUpgrade(sess, player, upg)
+	}
+}
+
+// handlePetMatchEntry 處理寵物比賽報名（NPC 80088）。
+// Java: Npc_PetWar.action() — cmd = "ent,,<amuletObjID>"。
+func handlePetMatchEntry(sess *net.Session, player *world.PlayerInfo, action string, deps *Deps) {
+	if deps.PetMatch == nil {
 		return
 	}
 
-	// 2. 驗證需求材料
-	for i, needID := range upg.NeedItemIDs {
-		if i >= len(upg.NeedCounts) {
-			break
-		}
-		needItem := player.Inv.FindByItemID(needID)
-		if needItem == nil || needItem.Count < upg.NeedCounts[i] {
-			SendSystemMessage(sess, "缺少必要的材料。")
-			return
-		}
+	// 解析動作字串："ent,,<amuletObjID>"
+	parts := strings.Split(action, ",")
+	if len(parts) < 3 {
+		return
+	}
+	amuletObjID := parseInt32(parts[2])
+	if amuletObjID <= 0 {
+		return
 	}
 
-	// 3. 計算加成材料機率
-	bonusChance := 0
-	plusItems := make([]*world.InvItem, 0) // 持有的加成材料
-	for i, plusID := range upg.PlusItemIDs {
-		if i >= len(upg.PlusCounts) || i >= len(upg.PlusAddChance) {
-			break
-		}
-		pi := player.Inv.FindByItemID(plusID)
-		if pi != nil && pi.Count >= upg.PlusCounts[i] {
-			bonusChance += upg.PlusAddChance[i]
-			plusItems = append(plusItems, pi)
-		}
+	// 驗證物品存在於玩家背包
+	collarItem := player.Inv.FindByObjectID(amuletObjID)
+	if collarItem == nil {
+		return
 	}
 
-	// 4. 消耗主物品
-	removed := player.Inv.RemoveItem(mainItem.ObjectID, upg.MainItemCount)
-	if removed {
-		sendRemoveInventoryItem(sess, mainItem.ObjectID)
-	} else {
-		sendItemCountUpdate(sess, mainItem)
-	}
-
-	// 5. 消耗需求材料
-	for i, needID := range upg.NeedItemIDs {
-		if i >= len(upg.NeedCounts) {
-			break
-		}
-		needItem := player.Inv.FindByItemID(needID)
-		if needItem == nil {
-			continue
-		}
-		r := player.Inv.RemoveItem(needItem.ObjectID, upg.NeedCounts[i])
-		if r {
-			sendRemoveInventoryItem(sess, needItem.ObjectID)
-		} else {
-			sendItemCountUpdate(sess, needItem)
-		}
-	}
-
-	// 6. 消耗加成材料
-	for i, pi := range plusItems {
-		if i >= len(upg.PlusCounts) {
-			break
-		}
-		r := player.Inv.RemoveItem(pi.ObjectID, upg.PlusCounts[i])
-		if r {
-			sendRemoveInventoryItem(sess, pi.ObjectID)
-		} else {
-			sendItemCountUpdate(sess, pi)
-		}
-	}
-
-	player.Dirty = true
-
-	// 7. 機率判定
-	totalChance := upg.UpgradeChance + bonusChance
-	roll := rand.Intn(100)
-	if roll < totalChance {
-		// 成功 → 給予新物品
-		upgradeSuccess(sess, player, upg, deps)
-	} else {
-		// 失敗 → 判定是否刪除（原物品已消耗）
-		if upg.DeleteChance > 0 && rand.Intn(100) < upg.DeleteChance {
-			upgradeDelete(sess, player, upg, deps)
-		} else {
-			upgradeFailure(sess, player, upg, deps)
-		}
-	}
-}
-
-// upgradeSuccess 升級成功：給予新物品 + 顯示成功 HTML。
-func upgradeSuccess(sess *net.Session, player *world.PlayerInfo, upg *data.ItemUpgrade, deps *Deps) {
-	if upg.NewItemID > 0 {
-		itemInfo := deps.Items.Get(upg.NewItemID)
-		if itemInfo != nil {
-			stackable := itemInfo.Stackable || upg.NewItemID == world.AdenaItemID
-			existing := player.Inv.FindByItemID(upg.NewItemID)
-			wasExisting := existing != nil && stackable
-
-			invItem := player.Inv.AddItem(upg.NewItemID, 1, itemInfo.Name, itemInfo.InvGfx,
-				itemInfo.Weight, stackable, byte(itemInfo.Bless))
-			invItem.UseType = itemInfo.UseTypeID
-			invItem.Identified = true
-
-			if wasExisting {
-				sendItemCountUpdate(sess, invItem)
-			} else {
-				sendAddItem(sess, invItem)
-			}
-			sendWeightUpdate(sess, player)
-		}
-	}
-
-	if upg.SuccessHTML != "" {
-		sendHypertext(sess, 0, upg.SuccessHTML)
-	} else {
-		SendSystemMessage(sess, "升級成功！")
-	}
-}
-
-// upgradeFailure 升級失敗（不刪除）：顯示失敗 HTML。
-func upgradeFailure(sess *net.Session, player *world.PlayerInfo, upg *data.ItemUpgrade, deps *Deps) {
-	_ = player // 保留參數方便未來擴充
-	_ = deps
-	if upg.FailureHTML != "" {
-		sendHypertext(sess, 0, upg.FailureHTML)
-	} else {
-		SendSystemMessage(sess, "升級失敗，材料已消耗。")
-	}
-}
-
-// upgradeDelete 升級大失敗（刪除原物品）：顯示刪除 HTML。
-func upgradeDelete(sess *net.Session, player *world.PlayerInfo, upg *data.ItemUpgrade, deps *Deps) {
-	_ = player
-	_ = deps
-	if upg.DeleteHTML != "" {
-		sendHypertext(sess, 0, upg.DeleteHTML)
-	} else {
-		SendSystemMessage(sess, "升級失敗，材料已被破壞。")
+	if !deps.PetMatch.EnterPetMatch(sess, player, amuletObjID) {
+		// EnterPetMatch 內部已發送錯誤訊息
 	}
 }

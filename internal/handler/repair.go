@@ -1,14 +1,11 @@
 package handler
 
 import (
-	"fmt"
 	"math"
 
 	"github.com/l1jgo/server/internal/data"
 	"github.com/l1jgo/server/internal/net"
 	"github.com/l1jgo/server/internal/net/packet"
-	"github.com/l1jgo/server/internal/scripting"
-	"github.com/l1jgo/server/internal/world"
 )
 
 // HandleFixWeaponList processes C_FIXABLE_ITEM (opcode 254) — player opens weapon repair NPC.
@@ -101,46 +98,8 @@ func HandleSelectList(sess *net.Session, r *packet.Reader, deps *Deps) {
 
 	// Calculate repair cost
 	cost := int32(item.Durability) * int32(deps.Config.Gameplay.RepairCostPerDurability)
-	if !consumeAdena(player, cost) {
+	if !deps.NpcSvc.RepairWeapon(sess, player, item, cost) {
 		return // insufficient adena (silent fail, matching Java behavior)
 	}
-	sendAdenaUpdate(sess, player)
-
-	// Repair: reset durability to 0 (perfect condition)
-	item.Durability = 0
-
-	// Send inventory update for the repaired weapon
-	sendItemCountUpdate(sess, item)
-	sendWeightUpdate(sess, player)
-
-	deps.Log.Info(fmt.Sprintf("武器修理完成  角色=%s  武器=%s  花費=%d",
-		player.Name, itemInfo.Name, cost))
 }
 
-// DamageWeaponDurability applies weapon durability damage on a successful melee/ranged hit.
-// Probability and max durability are calculated by Lua (item/durability.lua).
-// Should be called from HandleAttack/HandleFarAttack after a successful hit on NPC.
-func DamageWeaponDurability(sess *net.Session, player *world.PlayerInfo, deps *Deps) {
-	wpn := player.Equip.Weapon()
-	if wpn == nil {
-		return
-	}
-
-	result := deps.Scripting.CalcDurabilityDamage(scripting.DurabilityContext{
-		EnchantLvl:        int(wpn.EnchantLvl),
-		Bless:             int(wpn.Bless),
-		CurrentDurability: int(wpn.Durability),
-	})
-
-	if !result.ShouldDamage {
-		return
-	}
-
-	wpn.Durability++
-	maxDur := int8(result.MaxDurability)
-	if wpn.Durability > maxDur {
-		wpn.Durability = maxDur
-	}
-
-	sendItemCountUpdate(sess, wpn)
-}

@@ -87,6 +87,7 @@ type PetInfo struct {
 	// AI state (same pattern as SummonInfo)
 	AggroTarget   int32 // NPC object ID of hate target (0 = no target)
 	AggroPlayerID int32 // CharID of player target (for PvP; 0 = none)
+	AggroPetID    int32 // 寵物比賽：目標寵物的 object ID（0 = 無）
 	AttackTimer   int   // ticks until next attack (cooldown)
 	MoveTimer     int   // ticks until next move towards target
 	HomeX         int32 // alert mode anchor position

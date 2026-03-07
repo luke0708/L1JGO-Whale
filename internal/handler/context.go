@@ -56,6 +56,12 @@ type SkillManager interface {
 	CancelInvisibility(player *world.PlayerInfo)
 	// ApplyGMBuff GM 強制套用 buff（繞過已學/MP/材料驗證）。
 	ApplyGMBuff(player *world.PlayerInfo, skillID int32) bool
+	// RevertBuffStats 還原 buff 的所有屬性修改。
+	RevertBuffStats(target *world.PlayerInfo, buff *world.ActiveBuff)
+	// ConsumeSkillResources 扣除 MP/HP/材料並設定冷卻。
+	ConsumeSkillResources(sess *net.Session, player *world.PlayerInfo, skill *data.SkillInfo)
+	// ApplyBuffStats 套用 buff 的所有屬性加成（靜默，不發送封包）。供登入恢復 buff 使用。
+	ApplyBuffStats(player *world.PlayerInfo, buff *world.ActiveBuff)
 }
 
 // DeathManager 處理玩家死亡與重生。由 system.DeathSystem 實作。
@@ -147,6 +153,8 @@ type ClanManager interface {
 	ChangeRank(sess *net.Session, player *world.PlayerInfo, rank int16, targetName string)
 	// SetTitle 設定稱號。
 	SetTitle(sess *net.Session, player *world.PlayerInfo, charName, title string)
+	// HealMember 處理血盟飽食度 HP 回復。
+	HealMember(sess *net.Session, player *world.PlayerInfo, addHP int16)
 	// UploadEmblem 上傳盟徽。
 	UploadEmblem(sess *net.Session, player *world.PlayerInfo, emblemData []byte)
 	// DownloadEmblem 下載盟徽。
@@ -257,6 +265,8 @@ type HauntedHouseManager interface {
 	OnGoalReached(sess *net.Session, player *world.PlayerInfo)
 	// RemoveOnDisconnect 玩家斷線時移除。
 	RemoveOnDisconnect(player *world.PlayerInfo)
+	// GiveReward 給予鬼屋獎品。
+	GiveReward(sess *net.Session, player *world.PlayerInfo)
 }
 
 // DragonDoorManager 龍門系統管理器。由 system.DragonDoorSystem 實作。
@@ -275,6 +285,20 @@ type DollManager interface {
 	DismissDoll(doll *world.DollInfo, player *world.PlayerInfo)
 	// RemoveDollBonuses 僅還原娃娃屬性加成（不移除世界實體）。
 	RemoveDollBonuses(player *world.PlayerInfo, doll *world.DollInfo)
+}
+
+// HierarchManager 處理隨身祭司召喚/解散。由 system.HierarchSystem 實作。
+type HierarchManager interface {
+	// UseHierarch 處理使用隨身祭司物品（召喚或收回）。
+	UseHierarch(sess *net.Session, player *world.PlayerInfo, invItem *world.InvItem, def *data.HierarchDef)
+}
+
+// PetMatchManager 處理寵物比賽系統（報名/比賽/獎勵）。由 system.PetMatchSystem 實作。
+type PetMatchManager interface {
+	// EnterPetMatch 報名寵物比賽：驗證 → 召喚寵物 → 傳送到競技場。
+	EnterPetMatch(sess *net.Session, player *world.PlayerInfo, amuletObjID int32) bool
+	// TickPetMatches 每 tick 呼叫：檢查就緒狀態、比賽進行、超時判定。
+	TickPetMatches()
 }
 
 // ItemGroundManager 處理物品地面操作（銷毀、掉落、撿取）。由 system.ItemGroundSystem 實作。
@@ -341,12 +365,174 @@ type ItemUseManager interface {
 	ApplyHaste(sess *net.Session, player *world.PlayerInfo, durationSec int, gfxID int32)
 	// BroadcastEffect 向自己和附近玩家廣播特效。
 	BroadcastEffect(sess *net.Session, player *world.PlayerInfo, gfxID int32)
+	// ConsumeBoxItem 消耗 1 個寶箱物品。
+	ConsumeBoxItem(sess *net.Session, player *world.PlayerInfo, invItem *world.InvItem)
+	// GiveBoxReward 給予開箱獎勵物品。
+	GiveBoxReward(sess *net.Session, player *world.PlayerInfo, getItemID int32, minCount, maxCount int32, bless, enchant int8, broadcast bool)
+	// ActivateVIP 啟用 VIP 物品效果（同 type 互斥）。
+	ActivateVIP(sess *net.Session, player *world.PlayerInfo, invItem *world.InvItem, vip *data.ItemVIP)
 }
 
-// RankingChecker 提供英雄排名查詢。由 system.RankingSystem 實作。
+// RankingEntry 排名項目。
+type RankingEntry struct {
+	Name  string
+	Value int64
+}
+
+// RankingChecker 提供四大排名查詢。由 system.RankingSystem 實作。
 type RankingChecker interface {
 	// IsHero 檢查玩家是否在英雄排名中（TOP10 或任一職業 TOP3）。
 	IsHero(name string) bool
+	// GetHeroAll 全職業 TOP10。
+	GetHeroAll() []RankingEntry
+	// GetHeroClass 指定職業 TOP3（0=王族..7=戰士）。
+	GetHeroClass(classType int) []RankingEntry
+	// GetClanRanking 血盟 TOP10。
+	GetClanRanking() []RankingEntry
+	// GetKillRanking 擊殺 TOP10。
+	GetKillRanking() []RankingEntry
+	// GetDeathRanking 死亡 TOP10。
+	GetDeathRanking() []RankingEntry
+	// GetWealthRanking 財富 TOP10。
+	GetWealthRanking() []RankingEntry
+}
+
+// NpcServiceManager 處理 NPC 服務邏輯（治療、附魔、變身、傳送、升級）。由 system.NpcServiceSystem 實作。
+type NpcServiceManager interface {
+	// NpcFullHeal 處理 NPC 完整治療。
+	NpcFullHeal(sess *net.Session, player *world.PlayerInfo, npcID int32)
+	// NpcWeaponEnchant 處理 NPC 武器附魔。
+	NpcWeaponEnchant(sess *net.Session, player *world.PlayerInfo)
+	// NpcArmorEnchant 處理 NPC 防具附魔。
+	NpcArmorEnchant(sess *net.Session, player *world.PlayerInfo)
+	// NpcPoly 處理 NPC 變身服務。
+	NpcPoly(sess *net.Session, player *world.PlayerInfo, polyID int32)
+	// NpcTeleportWithCost 處理 NPC 傳送（扣費 + 傳送）。
+	NpcTeleportWithCost(sess *net.Session, player *world.PlayerInfo, dest *data.TeleportDest, objID int32)
+	// NpcUpgrade 處理物品升級合成。
+	NpcUpgrade(sess *net.Session, player *world.PlayerInfo, upg *data.ItemUpgrade)
+	// ConsumeAdena 扣除玩家金幣並發送更新封包。
+	ConsumeAdena(sess *net.Session, player *world.PlayerInfo, amount int32) bool
+	// RepairWeapon 處理武器修理（扣費 + 修復耐久度）。
+	RepairWeapon(sess *net.Session, player *world.PlayerInfo, weapon *world.InvItem, cost int32) bool
+	// ConsumeItem 消耗背包物品（移除 + 發送更新 + 標記 dirty）。
+	ConsumeItem(sess *net.Session, player *world.PlayerInfo, objectID int32, count int32) bool
+	// Refine 火神精煉分解（移除裝備 + 給予結晶體）。
+	Refine(sess *net.Session, player *world.PlayerInfo, item *world.InvItem, crystalItemID int32, crystalCount int32)
+}
+
+// ShopCnManager 處理天寶幣商城交易邏輯。由 system.ShopCnSystem 實作。
+type ShopCnManager interface {
+	// BuyCnItem 購買天寶幣商城物品（扣幣+給物品）。
+	BuyCnItem(sess *net.Session, player *world.PlayerInfo, cnItem *data.ShopCnItem, buyCount, actualCount int32)
+	// SellCnItem 回收物品換天寶幣（移除物品+給幣）。
+	SellCnItem(sess *net.Session, player *world.PlayerInfo, item *world.InvItem, sellCount, recyclePrice int32)
+}
+
+// PowerItemManager 處理強化物品購買邏輯。由 system.PowerItemSystem 實作。
+type PowerItemManager interface {
+	// BuyPowerItem 購買強化物品（扣金幣+給物品含屬性）。
+	BuyPowerItem(sess *net.Session, player *world.PlayerInfo, pItem *data.PowerShopItem)
+}
+
+// SpellShopManager 處理魔法商店購買邏輯。由 system.SpellShopSystem 實作。
+type SpellShopManager interface {
+	// BuySpells 購買並學習魔法（扣金幣+學習技能+特效）。
+	BuySpells(sess *net.Session, player *world.PlayerInfo, validSpells []*data.SkillInfo, totalCost int32)
+}
+
+// GMCommandManager 處理 GM 命令的角色狀態修改。由 system.GMCommandSystem 實作。
+type GMCommandManager interface {
+	// SetLevel 設定玩家等級（含經驗值、HP/MP 重算）。
+	SetLevel(sess *net.Session, player *world.PlayerInfo, level int)
+	// SetHP 設定玩家 HP（含死亡復活處理）。
+	SetHP(sess *net.Session, player *world.PlayerInfo, hp int)
+	// SetMP 設定玩家 MP。
+	SetMP(sess *net.Session, player *world.PlayerInfo, mp int)
+	// FullHeal 補滿 HP/MP（含死亡復活處理）。
+	FullHeal(sess *net.Session, player *world.PlayerInfo)
+	// SetStat 設定指定屬性值。
+	SetStat(sess *net.Session, player *world.PlayerInfo, stat string, value int16)
+	// GiveItem 給予物品。
+	GiveItem(sess *net.Session, player *world.PlayerInfo, itemID, count int32, enchant int8)
+	// GiveGold 給予金幣。
+	GiveGold(sess *net.Session, player *world.PlayerInfo, amount int32)
+}
+
+// PrivateShopManager 處理個人商店交易邏輯。由 system.PrivateShopSystem 實作。
+type PrivateShopManager interface {
+	// TransferItem 從來源玩家背包移動物品到目標玩家背包。
+	TransferItem(from, to *world.PlayerInfo, item *world.InvItem, count int32)
+	// TransferGold 轉移金幣。
+	TransferGold(from, to *world.PlayerInfo, amount int32)
+}
+
+// FishingManager 處理釣魚邏輯（開始/結束/tick）。由 system.FishingSystem 實作。
+type FishingManager interface {
+	// StartFishing 開始釣魚（設定狀態 + 廣播動作）。
+	StartFishing(player *world.PlayerInfo, item *world.InvItem)
+	// StopFishing 結束釣魚狀態。
+	StopFishing(player *world.PlayerInfo, sendMsg bool)
+	// Tick 每 tick 更新釣魚計時器。
+	Tick(player *world.PlayerInfo)
+}
+
+// MapTimerManager 處理限時地圖計時邏輯。由 system.MapTimerSystem 實作。
+type MapTimerManager interface {
+	// OnEnterTimedMap 玩家進入限時地圖時呼叫。
+	OnEnterTimedMap(player *world.PlayerInfo, mapID int16)
+	// TickMapTimer 每秒遞減計時，回傳 true 表示時間到。
+	TickMapTimer(player *world.PlayerInfo) bool
+	// ResetAllMapTimers 重置玩家所有限時地圖時間。
+	ResetAllMapTimers(player *world.PlayerInfo)
+}
+
+// InnManager 處理旅館租房/退租邏輯。由 system.InnSystem 實作。
+type InnManager interface {
+	// ReturnRoom 處理退租。
+	ReturnRoom(sess *net.Session, player *world.PlayerInfo, npcObjID, npcID int32)
+	// RentRoom 處理租房。
+	RentRoom(sess *net.Session, player *world.PlayerInfo, npcObjID, npcID int32, amount int32)
+}
+
+// MarriageManager 處理結婚/離婚邏輯。由 system.MarriageSystem 實作。
+type MarriageManager interface {
+	// AcceptProposal 處理求婚接受。
+	AcceptProposal(sess *net.Session, player *world.PlayerInfo, proposerID int32, accepted bool)
+	// ConfirmDivorce 處理離婚確認。
+	ConfirmDivorce(sess *net.Session, player *world.PlayerInfo, accepted bool)
+}
+
+// StatAllocManager 處理角色屬性配點邏輯。由 system.StatAllocSystem 實作。
+type StatAllocManager interface {
+	// AllocStat 分配一個屬性點。
+	AllocStat(sess *net.Session, player *world.PlayerInfo, statName string)
+}
+
+// CharResetManager 處理角色重置（洗點）邏輯。由 system.CharResetSystem 實作。
+type CharResetManager interface {
+	// Start 啟動角色重置流程。
+	Start(sess *net.Session, player *world.PlayerInfo)
+	// ResetStage1 處理初始屬性選擇。
+	ResetStage1(sess *net.Session, player *world.PlayerInfo, str, intel, wis, dex, con, cha int16)
+	// ResetStage2 處理逐級升級。
+	ResetStage2(sess *net.Session, player *world.PlayerInfo, type2 byte)
+	// ResetStage2Finish 處理 stage2 完成時的最後屬性加點。
+	ResetStage2Finish(sess *net.Session, player *world.PlayerInfo, lastAttr byte)
+	// ResetStage3 處理萬能藥屬性覆寫。
+	ResetStage3(sess *net.Session, player *world.PlayerInfo, str, intel, wis, dex, con, cha int16)
+}
+
+// QuestActionHandler 處理任務 NPC 動作邏輯（驗證/消耗/獎勵/步驟推進）。由 system.QuestSystem 實作。
+type QuestActionHandler interface {
+	// ExecuteQuestAction 執行任務動作（驗證條件 → 消耗道具 → 給予獎勵 → 推進步驟）。
+	ExecuteQuestAction(sess *net.Session, player *world.PlayerInfo, objID int32, npcID int32, action string) bool
+}
+
+// TrapTriggerer 處理陷阱觸發邏輯（傷害/治療/中毒/技能/傳送）。由 system.TrapSystem 實作。
+type TrapTriggerer interface {
+	// TriggerTraps 處理玩家踩到陷阱的所有遊戲邏輯。
+	TriggerTraps(sess *net.Session, player *world.PlayerInfo, traps []*world.TrapInstance)
 }
 
 // Deps holds shared dependencies injected into all packet handlers.
@@ -410,8 +596,10 @@ type Deps struct {
 	ItemGround    ItemGroundManager    // filled after ItemGroundSystem is created
 	PetLife       PetLifecycleManager // filled after PetSystem is created
 	DollMgr       DollManager         // filled after DollSystem is created
+	HierarchMgr   HierarchManager     // filled after HierarchSystem is created
 	HauntedHouse  HauntedHouseManager // filled after HauntedHouseSystem is created
 	DragonDoor    DragonDoorManager   // filled after DragonDoorSystem is created
+	PetMatch      PetMatchManager     // filled after PetMatchSystem is created
 	Bus           *event.Bus  // event bus for emitting game events (EntityKilled, etc.)
 	WeaponSkills  *data.WeaponSkillTable
 	FireCrystals  *data.FireCrystalTable
@@ -423,6 +611,30 @@ type Deps struct {
 	MobGroups     *data.MobGroupTable
 	ShopCn        *data.ShopCnTable
 	PowerItems    *data.PowerItemTable
+	Hierarchs     *data.HierarchTable
+	Auction       AuctionManager        // filled after AuctionSystem is created
+	Houses        *data.HouseTable      // 住宅靜態座標資料
+	HouseRepo     *persist.HouseRepo    // 住宅動態狀態持久化
+	InnRepo       *persist.InnRepo      // 旅館房間持久化
+	InnRooms      map[int32]map[int32]*persist.InnRoom // 旅館房間運行時狀態（npcID → roomNum → room）
+	Alliances     *AllianceManager      // 聯盟管理器（啟動時從 DB 載入）
+	ClanMatching  *ClanMatchingManager  // 血盟配對管理器
+	QuestData     *data.QuestTable     // 任務範本 + NPC 對話定義（YAML 載入）
+	TrapMgr       *world.TrapManager  // 陷阱管理器（座標觸發 + 重生）
+	Trap          TrapTriggerer      // 陷阱觸發邏輯（filled after TrapSystem is created）
+	Quest         QuestActionHandler // 任務動作邏輯（filled after QuestSystem is created）
+	NpcSvc        NpcServiceManager    // NPC 服務邏輯（filled after NpcServiceSystem is created）
+	CharReset     CharResetManager     // 角色重置邏輯（filled after CharResetSystem is created）
+	StatAlloc     StatAllocManager     // 屬性配點邏輯（filled after StatAllocSystem is created）
+	Marriage      MarriageManager      // 結婚/離婚邏輯（filled after MarriageSystem is created）
+	Inn           InnManager           // 旅館租房/退租邏輯（filled after InnSystem is created）
+	ShopCnMgr     ShopCnManager        // 天寶幣商城（filled after ShopCnSystem is created）
+	PowerItemMgr  PowerItemManager     // 強化物品購買（filled after PowerItemSystem is created）
+	SpellShopMgr  SpellShopManager     // 魔法商店（filled after SpellShopSystem is created）
+	GMCmd         GMCommandManager     // GM 命令（filled after GMCommandSystem is created）
+	PrivShop      PrivateShopManager   // 個人商店交易（filled after PrivateShopSystem is created）
+	Fishing       FishingManager       // 釣魚邏輯（filled after FishingSystem is created）
+	MapTimer      MapTimerManager      // 限時地圖計時（filled after MapTimerSystem is created）
 }
 
 // RegisterAll registers all packet handlers into the registry.
@@ -874,6 +1086,27 @@ func RegisterAll(reg *packet.Registry, deps *Deps) {
 	reg.Register(packet.C_OPCODE_MERCENARYARRANGE, inWorldStates,
 		func(sess any, r *packet.Reader) {
 			HandleMercenaryArrange(sess.(*net.Session), r, deps)
+		},
+	)
+
+	// 結婚系統（Java: C_Propose, opcode 50）
+	reg.Register(packet.C_OPCODE_MARRIAGE, inWorldStates,
+		func(sess any, r *packet.Reader) {
+			HandleMarriage(sess.(*net.Session), r, deps)
+		},
+	)
+
+	// 血盟配對系統（Java: C_ClanMatching, opcode 76）
+	reg.Register(packet.C_OPCODE_CLAN_MATCHING, inWorldStates,
+		func(sess any, r *packet.Reader) {
+			HandleClanMatching(sess.(*net.Session), r, deps)
+		},
+	)
+
+	// 釣魚點擊（Java: C_FishClick, opcode 62 — 與 C_OPCODE_THROW 共用）
+	reg.Register(packet.C_OPCODE_THROW, inWorldStates,
+		func(sess any, r *packet.Reader) {
+			HandleFishClick(sess.(*net.Session), r, deps)
 		},
 	)
 

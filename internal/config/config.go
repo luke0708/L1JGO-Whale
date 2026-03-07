@@ -126,6 +126,8 @@ type GameplayConfig struct {
 	InitialFood    int `toml:"initial_food"`    // food on creation / respawn
 	BaseAC         int `toml:"base_ac"`         // base AC for all characters
 	MaxFoodSatiety int `toml:"max_food_satiety"` // food cap from eating
+	HouseHPRBonus  int `toml:"house_hpr_bonus"`  // 血盟小屋 HP 回復加成
+	HouseMPRBonus  int `toml:"house_mpr_bonus"`  // 血盟小屋 MP 回復加成
 }
 
 type DebugConfig struct {
@@ -220,6 +222,8 @@ func defaults() *Config {
 			InitialFood:            40,
 			BaseAC:                 10,
 			MaxFoodSatiety:         225,
+			HouseHPRBonus:          10,
+			HouseMPRBonus:          10,
 		},
 		Lua: LuaConfig{
 			TickBudgetPct: 0.50,                   // warn if Lua uses > 50% of tick

@@ -81,6 +81,9 @@ type NpcInfo struct {
 	Sleeped       bool           // 睡眠 — 跳過所有 AI 行為，受傷時解除
 	ActiveDebuffs map[int32]int  // skillID → 剩餘 ticks（NPC 不需 stat delta，只需計時）
 
+	// 家具系統
+	FurnitureItemObjID int32 // 對應的道具 objectID（0 = 非家具 NPC）
+
 	// 法術中毒系統（Java L1DamagePoison 對 NPC）
 	PoisonDmgAmt      int32  // 每次扣血量（0=無毒）
 	PoisonDmgTimer    int    // 距下次扣血的 tick 計數（每 15 tick 扣一次）

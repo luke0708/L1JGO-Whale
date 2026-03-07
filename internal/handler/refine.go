@@ -82,25 +82,9 @@ func handleRefineResolve(sess *net.Session, r *packet.Reader, player *world.Play
 		return
 	}
 
-	// 移除原物品（武器/防具不可堆疊，移除 1 個）
-	removed := player.Inv.RemoveItem(item.ObjectID, 1)
-	if removed {
-		sendRemoveInventoryItem(sess, item.ObjectID)
-	} else {
-		sendItemCountUpdate(sess, item)
-	}
-
-	// 給予魔法結晶體（item 41246）
+	// 委派系統執行分解（移除裝備 + 給予結晶體）
 	const crystalItemID int32 = 41246
-	crystalInfo := deps.Items.Get(crystalItemID)
-	if crystalInfo != nil {
-		newItem := player.Inv.AddItem(crystalItemID, crystalCount, crystalInfo.Name,
-			crystalInfo.InvGfx, crystalInfo.Weight, crystalInfo.Stackable, byte(crystalInfo.Bless))
-		newItem.UseType = data.UseTypeToID(crystalInfo.UseType)
-		sendAddItem(sess, newItem, crystalInfo)
-	}
-
-	sendWeightUpdate(sess, player)
+	deps.NpcSvc.Refine(sess, player, item, crystalItemID, crystalCount)
 
 	// 系統訊息：獲得 X 個火神結晶體
 	sendGlobalChat(sess, 9, fmt.Sprintf("\\f2獲得 %d 個火神結晶體。", crystalCount))

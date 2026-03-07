@@ -3,7 +3,9 @@ package system
 import (
 	"time"
 
+	"github.com/l1jgo/server/internal/config"
 	coresys "github.com/l1jgo/server/internal/core/system"
+	"github.com/l1jgo/server/internal/data"
 	"github.com/l1jgo/server/internal/net"
 	"github.com/l1jgo/server/internal/net/packet"
 	"github.com/l1jgo/server/internal/scripting"
@@ -28,11 +30,13 @@ import (
 type RegenSystem struct {
 	world     *world.State
 	lua       *scripting.Engine
+	houses    *data.HouseTable
+	cfg       *config.Config
 	tickCount int
 }
 
-func NewRegenSystem(ws *world.State, lua *scripting.Engine) *RegenSystem {
-	return &RegenSystem{world: ws, lua: lua}
+func NewRegenSystem(ws *world.State, lua *scripting.Engine, houses *data.HouseTable, cfg *config.Config) *RegenSystem {
+	return &RegenSystem{world: ws, lua: lua, houses: houses, cfg: cfg}
 }
 
 func (s *RegenSystem) Phase() coresys.Phase { return coresys.PhasePostUpdate }
@@ -95,6 +99,10 @@ func (s *RegenSystem) tickHPRegen(p *world.PlayerInfo) {
 	}
 
 	total := int16(amount)
+
+	// 血盟小屋 HP 回復加成（Java: HprExecutor + ConfigOther.HOMEHPR）
+	total += s.houseHPBonus(p)
+
 	newHP := p.HP + total
 	if newHP < 1 {
 		newHP = 1
@@ -136,6 +144,10 @@ func (s *RegenSystem) tickMPRegen(p *world.PlayerInfo) {
 	}
 
 	total := int16(amount)
+
+	// 血盟小屋 MP 回復加成（Java: MprExecutor + ConfigOther.HOMEMPR）
+	total += s.houseMPBonus(p)
+
 	newMP := p.MP + total
 	if newMP < 0 {
 		newMP = 0
@@ -149,6 +161,36 @@ func (s *RegenSystem) tickMPRegen(p *world.PlayerInfo) {
 	p.MP = newMP
 	p.Dirty = true
 	sendMPUpdatePacket(p.Session, p.MP, p.MaxMP)
+}
+
+// isInHouse 判斷玩家是否在血盟小屋範圍內。
+// Java: HprExecutor/MprExecutor 檢查 isInHouse(x,y,mapid) 或 isInHouse(mapid)
+func (s *RegenSystem) isInHouse(p *world.PlayerInfo) bool {
+	if s.houses == nil {
+		return false
+	}
+	// 快速路徑：地下盟屋 mapID
+	if s.houses.IsHouseMap(p.MapID) {
+		return true
+	}
+	// 地面範圍檢查
+	return s.houses.FindHouseAt(p.X, p.Y, p.MapID) != nil
+}
+
+// houseHPBonus 回傳血盟小屋 HP 回復加成。
+func (s *RegenSystem) houseHPBonus(p *world.PlayerInfo) int16 {
+	if s.cfg != nil && s.cfg.Gameplay.HouseHPRBonus > 0 && s.isInHouse(p) {
+		return int16(s.cfg.Gameplay.HouseHPRBonus)
+	}
+	return 0
+}
+
+// houseMPBonus 回傳血盟小屋 MP 回復加成。
+func (s *RegenSystem) houseMPBonus(p *world.PlayerInfo) int16 {
+	if s.cfg != nil && s.cfg.Gameplay.HouseMPRBonus > 0 && s.isInHouse(p) {
+		return int16(s.cfg.Gameplay.HouseMPRBonus)
+	}
+	return 0
 }
 
 // ---------- Packet helpers ----------

@@ -1,0 +1,134 @@
+# 任務範本 + NPC 對話定義
+# Java: server_quest + QuestExecutor + Quest NPC handlers
+#
+# class_mask 職業位元遮罩:
+#   1=王族 2=騎士 4=精靈 8=法師 16=黑暗精靈 32=龍騎士 64=幻術師 128=戰士
+#   255=全職業
+#
+# step 約定: 0=未開始, 1~254=進行中, 255=已完成
+# dialog step -1 = 預設 fallback
+
+quests:
+  # ─── 15 級職業試煉（王族）─── Java: CrownLv15_1
+  - quest_id: 1
+    name: "王族的覺悟"
+    min_level: 15
+    class_mask: 1  # 王族限定
+    repeatable: false
+    enabled: true
+    note: "王族15級職業試煉"
+
+  # ─── 15 級職業試煉（騎士）─── Java: KnightLv15_1
+  - quest_id: 2
+    name: "騎士的試練"
+    min_level: 15
+    class_mask: 2  # 騎士限定
+    repeatable: false
+    enabled: true
+    note: "騎士15級職業試煉"
+
+  # ─── 15 級職業試煉（精靈）─── Java: ElfLv15_1
+  - quest_id: 3
+    name: "精靈的試練"
+    min_level: 15
+    class_mask: 4  # 精靈限定
+    repeatable: false
+    enabled: true
+    note: "精靈15級職業試煉"
+
+  # ─── 15 級職業試煉（法師）─── Java: WizardLv15_1
+  - quest_id: 4
+    name: "法師的試練"
+    min_level: 15
+    class_mask: 8  # 法師限定
+    repeatable: false
+    enabled: true
+    note: "法師15級職業試煉"
+
+  # ─── 15 級共通獵人任務 ─── Java: ALv15_1
+  - quest_id: 10
+    name: "獵人的委託"
+    min_level: 15
+    class_mask: 255  # 全職業
+    repeatable: true
+    enabled: true
+    note: "全職業15級可重複獵人任務"
+
+  # ─── 油布斗篷任務 ─── Java: quest_id=11
+  - quest_id: 11
+    name: "油布斗篷"
+    min_level: 1
+    class_mask: 255
+    repeatable: false
+    enabled: true
+    note: "新手油布斗篷任務"
+
+  # ─── 多羅曼德任務 ─── Java: quest_id=20
+  - quest_id: 20
+    name: "多羅曼德的任務"
+    min_level: 15
+    class_mask: 255
+    repeatable: false
+    enabled: true
+    note: "多羅曼德任務"
+
+  # ─── 戒指/耳環欄位開通 ─── 已在 attr.go 處理，僅註冊範本
+  - quest_id: 79
+    name: "戒指欄位3開通"
+    min_level: 76
+    class_mask: 255
+    repeatable: false
+    enabled: true
+    note: "Ring3 欄位開通（由 attr.go 處理）"
+
+  - quest_id: 80
+    name: "戒指欄位4開通"
+    min_level: 81
+    class_mask: 255
+    repeatable: false
+    enabled: true
+    note: "Ring4 欄位開通（由 attr.go 處理）"
+
+  - quest_id: 81
+    name: "耳環欄位2開通"
+    min_level: 81
+    class_mask: 255
+    repeatable: false
+    enabled: true
+    note: "Earring2 欄位開通（由 attr.go 處理）"
+
+# ─── NPC 對話定義 ───
+# 每個 NPC 可關聯多個任務，每個任務可指定不同 step 的 htmlid。
+# 客戶端的 htmlid 是 3.80C 內建的 HTML 資源，由客戶端渲染。
+
+dialogs: []
+  # 範例格式（啟用時移除 [] 並取消註解）：
+  # - npc_id: 71009     # 多羅曼德
+  #   quest_id: 20
+  #   dialogs:
+  #     - step: 0         # 未開始
+  #       html_id: "doromond1"
+  #     - step: 1         # 進行中
+  #       html_id: "doromond3"
+  #     - step: 255       # 已完成
+  #       html_id: "doromond7"
+  #   actions:
+  #     - cmd: "quest20"
+  #       requires_step: 0
+  #       set_step: 1
+  #       success_html: "doromond2"
+  #     - cmd: "quest20end"
+  #       requires_step: 1
+  #       require_items:
+  #         - item_id: 40568
+  #           count: 10
+  #       consume_items:
+  #         - item_id: 40568
+  #           count: 10
+  #       give_items:
+  #         - item_id: 20167
+  #           count: 1
+  #       give_exp: 5000
+  #       set_step: 255
+  #       success_html: "doromond5"
+  #       fail_html: "doromond4"

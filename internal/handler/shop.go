@@ -326,25 +326,14 @@ func handleFireSmithSell(sess *net.Session, r *packet.Reader, count int, player 
 		totalCrystals += crystalCount * sellQty
 
 		// 移除物品
-		removed := player.Inv.RemoveItem(invItem.ObjectID, sellQty)
-		if removed {
-			sendRemoveInventoryItem(sess, invItem.ObjectID)
-		} else {
-			sendItemCountUpdate(sess, invItem)
-		}
+		deps.NpcSvc.ConsumeItem(sess, player, invItem.ObjectID, sellQty)
 	}
 
 	// 給予魔法結晶體
 	if totalCrystals > 0 {
-		crystalInfo := deps.Items.Get(crystalItemID)
-		if crystalInfo != nil {
-			item := player.Inv.AddItem(crystalItemID, totalCrystals, crystalInfo.Name,
-				crystalInfo.InvGfx, crystalInfo.Weight, crystalInfo.Stackable, byte(crystalInfo.Bless))
-			item.UseType = data.UseTypeToID(crystalInfo.UseType)
-			sendAddItem(sess, item, crystalInfo)
-		}
+		// 使用空的 InvItem 佔位（Refine 會處理移除+給予，但此處已移除完畢）
+		// 直接給予結晶體
+		deps.NpcSvc.Refine(sess, player, nil, crystalItemID, totalCrystals)
 	}
-
-	sendWeightUpdate(sess, player)
 	deps.Log.Info(fmt.Sprintf("火神精煉  角色=%s  獲得結晶=%d", player.Name, totalCrystals))
 }

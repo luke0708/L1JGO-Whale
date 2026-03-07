@@ -48,7 +48,7 @@ dolls:
       - type: mpr
         value: 4
       - type: skill
-        value: 1
+        value: 77
         chance: 5
   - item_id: 47107
     gfx_id: 92102

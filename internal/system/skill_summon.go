@@ -204,7 +204,7 @@ func (s *SummonSystem) ExecuteSummonMonster(sess *net.Session, player *world.Pla
 	}
 
 	// 所有驗證通過 — 消耗資源
-	handler.ConsumeSkillResources(sess, player, skill)
+	s.deps.Skill.ConsumeSkillResources(sess, player, skill)
 
 	// 清除召喚選擇模式
 	player.SummonSelectionMode = false
@@ -305,7 +305,7 @@ func (s *SummonSystem) ExecuteTamingMonster(sess *net.Session, player *world.Pla
 	}
 
 	// 所有驗證通過 — 消耗資源
-	handler.ConsumeSkillResources(sess, player, skill)
+	s.deps.Skill.ConsumeSkillResources(sess, player, skill)
 
 	// 從 NPC 建立召喚獸
 	sum := &world.SummonInfo{
@@ -427,7 +427,7 @@ func (s *SummonSystem) ExecuteCreateZombie(sess *net.Session, player *world.Play
 	}
 
 	// 所有驗證通過 — 消耗資源
-	handler.ConsumeSkillResources(sess, player, skill)
+	s.deps.Skill.ConsumeSkillResources(sess, player, skill)
 
 	sum := &world.SummonInfo{
 		ID:          world.NextNpcID(),
@@ -494,7 +494,7 @@ func (s *SummonSystem) ExecuteReturnToNature(sess *net.Session, player *world.Pl
 	}
 
 	// 驗證通過（有召喚獸） — 消耗資源
-	handler.ConsumeSkillResources(sess, player, skill)
+	s.deps.Skill.ConsumeSkillResources(sess, player, skill)
 
 	for _, sum := range summons {
 		if sum.Tamed {

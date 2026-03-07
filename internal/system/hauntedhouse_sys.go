@@ -130,14 +130,14 @@ func (s *HauntedHouseSystem) OnGoalReached(sess *net.Session, player *world.Play
 
 	if s.goals+1 == s.winners {
 		// 最後一位勝者 → 給獎品 → 結束活動
-		handler.GiveHauntedHouseReward(sess, player, s.deps)
+		s.GiveReward(sess, player)
 		s.endGame()
 	} else if s.goals+1 < s.winners {
 		// 非最後勝者 → 給獎品 → 移出 → 傳送
 		s.goals++
 		s.removeMember(player.CharID)
 
-		handler.GiveHauntedHouseReward(sess, player, s.deps)
+		s.GiveReward(sess, player)
 
 		// 清 buff → 傳送出去
 		if s.deps.Skill != nil {
@@ -273,4 +273,35 @@ func (s *HauntedHouseSystem) removeMember(charID int32) {
 			return
 		}
 	}
+}
+
+// GiveReward 給予鬼屋獎品（物品 41308 勇者的南瓜袋子）。
+func (s *HauntedHouseSystem) GiveReward(sess *net.Session, player *world.PlayerInfo) {
+	const rewardItemID int32 = 41308 // 勇者的南瓜袋子
+
+	itemInfo := s.deps.Items.Get(rewardItemID)
+	if itemInfo == nil {
+		return
+	}
+
+	if player.Inv.IsFull() {
+		return
+	}
+
+	existing := player.Inv.FindByItemID(rewardItemID)
+	wasExisting := existing != nil && itemInfo.Stackable
+
+	invItem := player.Inv.AddItem(
+		rewardItemID, 1, itemInfo.Name, itemInfo.InvGfx,
+		itemInfo.Weight, itemInfo.Stackable, byte(itemInfo.Bless),
+	)
+
+	if wasExisting {
+		handler.SendItemCountUpdate(sess, invItem)
+	} else {
+		handler.SendAddItem(sess, invItem, itemInfo)
+	}
+
+	// S_ServerMessage 403: 獲得 %0
+	handler.SendServerMessageStr(sess, 403, invItem.Name)
 }

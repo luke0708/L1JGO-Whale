@@ -147,11 +147,10 @@ func HandleBoardWrite(sess *net.Session, r *packet.Reader, deps *Deps) {
 	}
 
 	// Charge posting fee
-	if !consumeAdena(player, int32(deps.Config.Gameplay.BoardPostCost)) {
+	if !deps.NpcSvc.ConsumeAdena(sess, player, int32(deps.Config.Gameplay.BoardPostCost)) {
 		sendServerMessage(sess, 189) // "金幣不足。"
 		return
 	}
-	sendAdenaUpdate(sess, player)
 
 	if deps.BoardRepo == nil {
 		return

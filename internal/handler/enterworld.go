@@ -204,7 +204,7 @@ func HandleEnterWorld(sess *net.Session, r *packet.Reader, deps *Deps) {
 	}
 
 	// 檢查是否在限時地圖中（斷線重連場景）
-	OnEnterTimedMap(sess, player, player.MapID)
+	OnEnterTimedMap(sess, player, player.MapID, deps)
 
 	// --- 發送附近玩家（AOI）+ 封鎖格子 + 填入 Known ---
 	nearby := deps.World.GetNearbyPlayers(ch.X, ch.Y, ch.MapID, sess.ID)
@@ -240,6 +240,15 @@ func HandleEnterWorld(sess *net.Session, r *packet.Reader, deps *Deps) {
 		}
 		SendDollPack(sess, doll, masterName)
 		player.Known.Dolls[doll.ID] = world.KnownPos{X: doll.X, Y: doll.Y}
+	}
+	nearbyHierarchs := deps.World.GetNearbyHierarchs(ch.X, ch.Y, ch.MapID)
+	for _, h := range nearbyHierarchs {
+		masterName := ""
+		if master := deps.World.GetByCharID(h.OwnerCharID); master != nil {
+			masterName = master.Name
+		}
+		SendHierarchPack(sess, h, masterName)
+		player.Known.Hierarchs[h.ID] = world.KnownPos{X: h.X, Y: h.Y}
 	}
 	nearbyFollowers := deps.World.GetNearbyFollowers(ch.X, ch.Y, ch.MapID)
 	for _, f := range nearbyFollowers {
@@ -330,6 +339,10 @@ func loadInventoryFromDB(player *world.PlayerInfo, deps *Deps) {
 				invItem.Durability = int8(row.Durability)
 				invItem.AttrEnchantKind = int8(row.AttrEnchantKind)
 				invItem.AttrEnchantLevel = int8(row.AttrEnchantLevel)
+				invItem.InnKeyID = row.InnKeyID
+				invItem.InnNpcID = row.InnNpcID
+				invItem.InnHall = row.InnHall
+				invItem.InnDueTime = row.InnDueTime
 				if row.Equipped && row.EquipSlot > 0 {
 					invItem.Equipped = true
 					slot := world.EquipSlot(row.EquipSlot)
@@ -515,29 +528,10 @@ func loadAndRestoreBuffs(player *world.PlayerInfo, deps *Deps) {
 
 		player.AddBuff(buff)
 
-		// Apply stat deltas to player (silently — no packets)
-		player.AC += buff.DeltaAC
-		player.Str += buff.DeltaStr
-		player.Dex += buff.DeltaDex
-		player.Con += buff.DeltaCon
-		player.Wis += buff.DeltaWis
-		player.Intel += buff.DeltaIntel
-		player.Cha += buff.DeltaCha
-		player.MaxHP += buff.DeltaMaxHP
-		player.MaxMP += buff.DeltaMaxMP
-		player.HitMod += buff.DeltaHitMod
-		player.DmgMod += buff.DeltaDmgMod
-		player.SP += buff.DeltaSP
-		player.MR += buff.DeltaMR
-		player.HPR += buff.DeltaHPR
-		player.MPR += buff.DeltaMPR
-		player.BowHitMod += buff.DeltaBowHit
-		player.BowDmgMod += buff.DeltaBowDmg
-		player.Dodge += buff.DeltaDodge
-		player.FireRes += buff.DeltaFireRes
-		player.WaterRes += buff.DeltaWaterRes
-		player.WindRes += buff.DeltaWindRes
-		player.EarthRes += buff.DeltaEarthRes
+		// 委派 SkillSystem 套用屬性加成（靜默，不發送封包）
+		if deps.Skill != nil {
+			deps.Skill.ApplyBuffStats(player, buff)
+		}
 
 		// Restore speed flags (state only, no packets)
 		if buff.SetMoveSpeed > 0 {
@@ -681,7 +675,7 @@ func sendUnlockedSlotExpansions(sess *net.Session, player *world.PlayerInfo) {
 
 }
 
-// loadQuestsFromDB 載入角色已完成的任務到 QuestsDone map。
+// loadQuestsFromDB 載入角色所有任務進度到 Quests map。
 func loadQuestsFromDB(player *world.PlayerInfo, deps *Deps) {
 	if deps.QuestRepo == nil {
 		return
@@ -690,12 +684,12 @@ func loadQuestsFromDB(player *world.PlayerInfo, deps *Deps) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	quests, err := deps.QuestRepo.LoadCompleted(ctx, player.CharID)
+	quests, err := deps.QuestRepo.LoadAll(ctx, player.CharID)
 	if err != nil {
 		deps.Log.Error("載入任務失敗", zap.String("name", player.Name), zap.Error(err))
 		return
 	}
-	player.QuestsDone = quests
+	player.Quests = quests
 }
 
 // loadBuddiesFromDB loads the buddy list from the character_buddys table.

@@ -2,7 +2,6 @@ package handler
 
 import (
 	"fmt"
-	"math/rand"
 	"strconv"
 	"time"
 
@@ -333,6 +332,12 @@ func handleUseEtcItem(sess *net.Session, r *packet.Reader, player *world.PlayerI
 		return
 	}
 
+	// 家具道具 — 放置/移除家具 NPC
+	if IsFurnitureItem(invItem.ItemID) {
+		HandleFurnitureUse(sess, player, invItem, deps)
+		return
+	}
+
 	// 龍之鑰匙（物品 47010）— 開啟龍門選擇 UI
 	// Java: DragonKey.execute() — 獨立的 ItemExecutor 處理
 	if invItem.ItemID == 47010 {
@@ -382,6 +387,16 @@ func handleUseEtcItem(sess *net.Session, r *packet.Reader, player *world.PlayerI
 		}
 	}
 
+	// 隨身祭司物品（39007-39010）
+	if deps.Hierarchs != nil {
+		if hd := deps.Hierarchs.Get(invItem.ItemID); hd != nil {
+			if deps.HierarchMgr != nil {
+				deps.HierarchMgr.UseHierarch(sess, player, invItem, hd)
+			}
+			return
+		}
+	}
+
 	// VIP 物品 — Java: ItemVIPTable.addItemVIP()
 	if deps.ItemVIPs != nil {
 		if vip := deps.ItemVIPs.Get(invItem.ItemID); vip != nil {
@@ -395,6 +410,24 @@ func handleUseEtcItem(sess *net.Session, r *packet.Reader, player *world.PlayerI
 		if openItemBox(sess, player, invItem, deps) {
 			return
 		}
+	}
+
+	// 料理書（41255-41259）
+	if IsCookingBook(invItem.ItemID) {
+		HandleCookingBook(sess, player, invItem, deps)
+		return
+	}
+
+	// 釣竿
+	if IsFishingPole(invItem.ItemID) {
+		HandleFishingPole(sess, player, invItem, deps)
+		return
+	}
+
+	// 結婚戒指（40901-40908）
+	if IsMarriageRing(invItem.ItemID) {
+		HandleRingTeleport(sess, player, invItem, deps)
+		return
 	}
 
 	// 物品使用延遲檢查（Java: L1ItemDelay）
@@ -817,6 +850,16 @@ func applyHaste(sess *net.Session, player *world.PlayerInfo, durationSec int, gf
 
 // ---------- Exported wrappers for system package ----------
 
+// BroadcastEffectOnPlayer 廣播特效到角色身上。Exported for system package usage.
+func BroadcastEffectOnPlayer(sess *net.Session, player *world.PlayerInfo, gfxID int32, deps *Deps) {
+	broadcastEffect(sess, player, gfxID, deps)
+}
+
+// RecalcEquipStats 重新計算裝備屬性。Exported for system package usage.
+func RecalcEquipStats(sess *net.Session, player *world.PlayerInfo, deps *Deps) {
+	recalcEquipStats(sess, player, deps)
+}
+
 // BroadcastVisualUpdate 廣播角色外觀更新。Exported for system package usage.
 func BroadcastVisualUpdate(sess *net.Session, player *world.PlayerInfo, deps *Deps) {
 	broadcastVisualUpdate(sess, player, deps)
@@ -861,13 +904,13 @@ func openItemBox(sess *net.Session, player *world.PlayerInfo, invItem *world.Inv
 			return true
 		}
 		// 消耗寶箱
-		consumeBoxItem(sess, player, invItem)
+		deps.ItemUse.ConsumeBoxItem(sess, player, invItem)
 		// 抽取物品
 		rolled := deps.ItemBoxes.RollBox(itemID)
 		if rolled == nil {
 			return true
 		}
-		giveBoxReward(sess, player, rolled.GetItemID, rolled.MinCount, rolled.MaxCount, rolled.Bless, rolled.Enchant, rolled.Broadcast, deps)
+		deps.ItemUse.GiveBoxReward(sess, player, rolled.GetItemID, rolled.MinCount, rolled.MaxCount, rolled.Bless, rolled.Enchant, rolled.Broadcast)
 		return true
 	}
 
@@ -888,99 +931,16 @@ func openItemBox(sess *net.Session, player *world.PlayerInfo, invItem *world.Inv
 			}
 		}
 		// 消耗寶箱
-		consumeBoxItem(sess, player, invItem)
+		deps.ItemUse.ConsumeBoxItem(sess, player, invItem)
 		// 給予全部物品
 		for _, bi := range items {
-			giveBoxReward(sess, player, bi.GetItemID, bi.Count, bi.Count, bi.Bless, bi.Enchant, bi.Broadcast, deps)
+			deps.ItemUse.GiveBoxReward(sess, player, bi.GetItemID, bi.Count, bi.Count, bi.Bless, bi.Enchant, bi.Broadcast)
 		}
 		return true
 	}
 
 	// 非寶箱物品
 	return false
-}
-
-// consumeBoxItem 消耗 1 個寶箱物品。
-func consumeBoxItem(sess *net.Session, player *world.PlayerInfo, invItem *world.InvItem) {
-	removed := player.Inv.RemoveItem(invItem.ObjectID, 1)
-	if removed {
-		sendRemoveInventoryItem(sess, invItem.ObjectID)
-	} else {
-		sendItemCountUpdate(sess, invItem)
-	}
-	player.Dirty = true
-}
-
-// giveBoxReward 給予開箱獎勵物品。
-func giveBoxReward(sess *net.Session, player *world.PlayerInfo, getItemID int32, minCount, maxCount int32, bless int8, enchant int8, broadcast bool, deps *Deps) {
-	itemInfo := deps.Items.Get(getItemID)
-	if itemInfo == nil {
-		deps.Log.Warn("開箱物品不存在", zap.Int32("itemID", getItemID))
-		return
-	}
-
-	// 決定數量
-	count := minCount
-	if maxCount > minCount {
-		count = minCount + rand.Int31n(maxCount-minCount+1)
-	}
-	if count < 1 {
-		count = 1
-	}
-
-	// 決定祝福狀態：-1=使用模板預設值
-	itemBless := byte(itemInfo.Bless)
-	if bless >= 0 {
-		itemBless = byte(bless)
-	}
-
-	stackable := itemInfo.Stackable || getItemID == world.AdenaItemID
-
-	// 檢查是否已有同物品可堆疊
-	existing := player.Inv.FindByItemID(getItemID)
-	wasExisting := existing != nil && stackable
-
-	invItem := player.Inv.AddItem(getItemID, count, itemInfo.Name, itemInfo.InvGfx,
-		itemInfo.Weight, stackable, itemBless)
-	invItem.UseType = itemInfo.UseTypeID
-	invItem.Identified = true
-	if enchant > 0 {
-		invItem.EnchantLvl = int8(enchant)
-	}
-
-	if wasExisting {
-		sendItemCountUpdate(sess, invItem)
-	} else {
-		sendAddItem(sess, invItem)
-	}
-	sendWeightUpdate(sess, player)
-
-	// 全服公告
-	if broadcast {
-		broadcastBoxDrop(player.Name, itemInfo.Name, count, deps)
-	}
-}
-
-// broadcastBoxDrop 全服公告開箱獲得物品。
-// Java: BoxRandom.showMessage() — 使用 S_ServerMessage msgID 166: "%0 獲得了 %1。"
-func broadcastBoxDrop(playerName, itemName string, count int32, deps *Deps) {
-	displayName := itemName
-	if count > 1 {
-		displayName = fmt.Sprintf("%s(%d)", itemName, count)
-	}
-
-	w := packet.NewWriterWithOpcode(packet.S_OPCODE_MESSAGE_CODE)
-	w.WriteH(166) // "%0 獲得了 %1。"
-	w.WriteC(2)   // 2 個參數
-	w.WriteS(playerName)
-	w.WriteS(displayName)
-	msgData := w.Bytes()
-
-	deps.World.AllPlayers(func(p *world.PlayerInfo) {
-		if p.Session != nil {
-			p.Session.Send(msgData)
-		}
-	})
 }
 
 // countNonStackableSlots 計算全給型寶箱需要的額外背包格數。
@@ -1012,170 +972,8 @@ func checkClassBitmask(class int32, mask int) bool {
 
 // ---------- VIP 物品系統 ----------
 
-// useVIPItem 啟用 VIP 物品。同 type 互斥（先移除舊的再套用新的）。
-// Java: ItemVIPTable.addItemVIP() / deleItemVIP()
+// useVIPItem 啟用 VIP 物品。委派給 ItemUseSystem。
 func useVIPItem(sess *net.Session, player *world.PlayerInfo, invItem *world.InvItem, vip *data.ItemVIP, deps *Deps) {
-	if player.ActiveVIP == nil {
-		player.ActiveVIP = make(map[int]int32)
-	}
-
-	// 同 type 互斥：移除舊的 VIP 效果
-	if oldObjID, ok := player.ActiveVIP[vip.Type]; ok {
-		oldItem := player.Inv.FindByObjectID(oldObjID)
-		if oldItem != nil {
-			if oldVIP := deps.ItemVIPs.Get(oldItem.ItemID); oldVIP != nil {
-				revertVIPStats(player, oldVIP)
-			}
-		}
-		delete(player.ActiveVIP, vip.Type)
-	}
-
-	// 套用新 VIP 屬性
-	applyVIPStats(player, vip)
-	player.ActiveVIP[vip.Type] = invItem.ObjectID
-	player.Dirty = true
-
-	// 發送屬性更新封包
-	sendVIPStatusUpdates(sess, player, vip)
-
-	// 播放特效
-	if vip.GfxID > 0 {
-		sendSkillEffect(sess, player.CharID, vip.GfxID)
-	}
-
-	SendSystemMessage(sess, "VIP 效果已啟用。")
+	deps.ItemUse.ActivateVIP(sess, player, invItem, vip)
 }
 
-// applyVIPStats 套用 VIP 屬性加成到 PlayerInfo。
-func applyVIPStats(p *world.PlayerInfo, vip *data.ItemVIP) {
-	p.Str += vip.AddStr
-	p.Dex += vip.AddDex
-	p.Con += vip.AddCon
-	p.Intel += vip.AddInt
-	p.Wis += vip.AddWis
-	p.Cha += vip.AddCha
-	p.AC -= vip.AddAC // AC 越低越好
-	p.MaxHP += vip.AddHP
-	p.MaxMP += vip.AddMP
-	p.HPR += vip.AddHPR
-	p.MPR += vip.AddMPR
-	p.DmgMod += vip.AddDmg
-	p.HitMod += vip.AddHit
-	p.BowDmgMod += vip.AddBowDmg
-	p.BowHitMod += vip.AddBowHit
-	p.MR += vip.AddMR
-	p.SP += vip.AddSP
-	p.FireRes += vip.AddFire
-	p.WaterRes += vip.AddWater
-	p.WindRes += vip.AddWind
-	p.EarthRes += vip.AddEarth
-	p.RegistStun += vip.AddStun
-	p.RegistStone += vip.AddStone
-	p.RegistSleep += vip.AddSleep
-	p.RegistFreeze += vip.AddFreeze
-	p.RegistSustain += vip.AddSustain
-	p.RegistBlind += vip.AddBlind
-}
-
-// revertVIPStats 移除 VIP 屬性加成。
-func revertVIPStats(p *world.PlayerInfo, vip *data.ItemVIP) {
-	p.Str -= vip.AddStr
-	p.Dex -= vip.AddDex
-	p.Con -= vip.AddCon
-	p.Intel -= vip.AddInt
-	p.Wis -= vip.AddWis
-	p.Cha -= vip.AddCha
-	p.AC += vip.AddAC
-	p.MaxHP -= vip.AddHP
-	p.MaxMP -= vip.AddMP
-	p.HPR -= vip.AddHPR
-	p.MPR -= vip.AddMPR
-	p.DmgMod -= vip.AddDmg
-	p.HitMod -= vip.AddHit
-	p.BowDmgMod -= vip.AddBowDmg
-	p.BowHitMod -= vip.AddBowHit
-	p.MR -= vip.AddMR
-	p.SP -= vip.AddSP
-	p.FireRes -= vip.AddFire
-	p.WaterRes -= vip.AddWater
-	p.WindRes -= vip.AddWind
-	p.EarthRes -= vip.AddEarth
-	p.RegistStun -= vip.AddStun
-	p.RegistStone -= vip.AddStone
-	p.RegistSleep -= vip.AddSleep
-	p.RegistFreeze -= vip.AddFreeze
-	p.RegistSustain -= vip.AddSustain
-	p.RegistBlind -= vip.AddBlind
-}
-
-// sendVIPStatusUpdates 根據 VIP 屬性變化發送對應的更新封包。
-// Java: addItemVIP() 內依變更屬性分類發送 4 種封包。
-func sendVIPStatusUpdates(sess *net.Session, p *world.PlayerInfo, vip *data.ItemVIP) {
-	// 六維 + HP/MP/AC → S_OwnCharStatus
-	if vip.AddStr != 0 || vip.AddDex != 0 || vip.AddCon != 0 ||
-		vip.AddInt != 0 || vip.AddWis != 0 || vip.AddCha != 0 ||
-		vip.AddHP != 0 || vip.AddMP != 0 || vip.AddAC != 0 {
-		sendPlayerStatus(sess, p)
-	}
-
-	// AC + 元素抗性 → S_OwnCharAttrDef
-	if vip.AddAC != 0 || vip.AddFire != 0 || vip.AddWater != 0 ||
-		vip.AddWind != 0 || vip.AddEarth != 0 {
-		sendAbilityScores(sess, p)
-	}
-
-	// SP + MR → S_SPMR
-	if vip.AddSP != 0 || vip.AddMR != 0 {
-		sendMagicStatus(sess, byte(p.SP), uint16(p.MR))
-	}
-
-	// HP/MP 上限變化
-	if vip.AddHP != 0 {
-		sendHpUpdate(sess, p)
-	}
-	if vip.AddMP != 0 {
-		sendMpUpdate(sess, p)
-	}
-}
-
-// ReapplyVIPEffects 重新套用已啟用的 VIP 物品效果（登入時呼叫）。
-// Java: L1PcInventory.loadItems() 中對已裝備 VIP 物品呼叫 addItemVIP()。
-func ReapplyVIPEffects(sess *net.Session, player *world.PlayerInfo, vipTable *data.ItemVIPTable) {
-	if player.ActiveVIP == nil || vipTable == nil {
-		return
-	}
-	for vipType, objID := range player.ActiveVIP {
-		item := player.Inv.FindByObjectID(objID)
-		if item == nil {
-			delete(player.ActiveVIP, vipType)
-			continue
-		}
-		vip := vipTable.Get(item.ItemID)
-		if vip == nil {
-			delete(player.ActiveVIP, vipType)
-			continue
-		}
-		applyVIPStats(player, vip)
-	}
-}
-
-// RemoveAllVIPEffects 移除所有 VIP 效果（登出或清理時呼叫）。
-func RemoveAllVIPEffects(player *world.PlayerInfo, vipTable *data.ItemVIPTable) {
-	if player.ActiveVIP == nil || vipTable == nil {
-		return
-	}
-	for vipType, objID := range player.ActiveVIP {
-		item := player.Inv.FindByObjectID(objID)
-		if item == nil {
-			delete(player.ActiveVIP, vipType)
-			continue
-		}
-		vip := vipTable.Get(item.ItemID)
-		if vip == nil {
-			delete(player.ActiveVIP, vipType)
-			continue
-		}
-		revertVIPStats(player, vip)
-		delete(player.ActiveVIP, vipType)
-	}
-}

@@ -40,7 +40,7 @@ func HandleGMCommand(sess *net.Session, player *world.PlayerInfo, text string, d
 	case "hp":
 		gmHP(sess, player, args, deps)
 	case "mp":
-		gmMP(sess, player, args)
+		gmMP(sess, player, args, deps)
 	case "heal":
 		gmHeal(sess, player, deps)
 	case "stat":
@@ -176,22 +176,7 @@ func gmLevel(sess *net.Session, player *world.PlayerInfo, args []string, deps *D
 		return
 	}
 
-	player.Level = int16(lv)
-	// Set exp to match level (via Lua exp table)
-	player.Exp = int32(deps.Scripting.ExpForLevel(lv))
-
-	// Recalculate MaxHP/MaxMP based on new level
-	// Base: level 1 stats + level-up gains (via Lua)
-	baseHP, baseMP := calcBaseHPMP(player.ClassType, player.Level, player.Con, player.Wis, deps)
-	player.MaxHP = baseHP
-	player.MaxMP = baseMP
-	player.HP = player.MaxHP
-	player.MP = player.MaxMP
-
-	sendPlayerStatus(sess, player)
-	sendExpUpdate(sess, player.Level, player.Exp)
-	sendHpUpdate(sess, player)
-	sendMpUpdate(sess, player)
+	deps.GMCmd.SetLevel(sess, player, lv)
 
 	gmMsgf(sess, "等級已設為 %d (HP:%d MP:%d)", lv, player.MaxHP, player.MaxMP)
 }
@@ -207,21 +192,11 @@ func gmHP(sess *net.Session, player *world.PlayerInfo, args []string, deps *Deps
 		return
 	}
 
-	player.HP = int16(val)
-	if player.HP > player.MaxHP {
-		player.MaxHP = player.HP
-	}
-	if player.HP > 0 && player.Dead {
-		player.Dead = false
-		player.LastMoveTime = 0
-		deps.World.OccupyEntity(player.MapID, player.X, player.Y, player.CharID)
-	}
-	sendHpUpdate(sess, player)
-	sendPlayerStatus(sess, player)
+	deps.GMCmd.SetHP(sess, player, val)
 	gmMsgf(sess, "HP 已設為 %d/%d", player.HP, player.MaxHP)
 }
 
-func gmMP(sess *net.Session, player *world.PlayerInfo, args []string) {
+func gmMP(sess *net.Session, player *world.PlayerInfo, args []string, deps *Deps) {
 	if len(args) < 1 {
 		gmMsg(sess, "\\f3用法: .mp <數值>")
 		return
@@ -232,25 +207,12 @@ func gmMP(sess *net.Session, player *world.PlayerInfo, args []string) {
 		return
 	}
 
-	player.MP = int16(val)
-	if player.MP > player.MaxMP {
-		player.MaxMP = player.MP
-	}
-	sendMpUpdate(sess, player)
-	sendPlayerStatus(sess, player)
+	deps.GMCmd.SetMP(sess, player, val)
 	gmMsgf(sess, "MP 已設為 %d/%d", player.MP, player.MaxMP)
 }
 
 func gmHeal(sess *net.Session, player *world.PlayerInfo, deps *Deps) {
-	player.HP = player.MaxHP
-	player.MP = player.MaxMP
-	if player.Dead {
-		player.Dead = false
-		player.LastMoveTime = 0
-		deps.World.OccupyEntity(player.MapID, player.X, player.Y, player.CharID)
-	}
-	sendHpUpdate(sess, player)
-	sendMpUpdate(sess, player)
+	deps.GMCmd.FullHeal(sess, player)
 	gmMsg(sess, "HP/MP 已補滿")
 }
 
@@ -268,24 +230,13 @@ func gmStat(sess *net.Session, player *world.PlayerInfo, args []string, deps *De
 	stat := strings.ToLower(args[0])
 	v := int16(val)
 	switch stat {
-	case "str":
-		player.Str = v
-	case "dex":
-		player.Dex = v
-	case "con":
-		player.Con = v
-	case "wis":
-		player.Wis = v
-	case "int":
-		player.Intel = v
-	case "cha":
-		player.Cha = v
+	case "str", "dex", "con", "wis", "int", "cha":
+		deps.GMCmd.SetStat(sess, player, stat, v)
 	default:
 		gmMsg(sess, "\\f3未知的屬性: "+stat)
 		return
 	}
 
-	sendPlayerStatus(sess, player)
 	gmMsgf(sess, "%s 已設為 %d", strings.ToUpper(stat), val)
 }
 
@@ -353,23 +304,7 @@ func gmItem(sess *net.Session, player *world.PlayerInfo, args []string, deps *De
 		return
 	}
 
-	stackable := itemInfo.Stackable || int32(itemID) == world.AdenaItemID
-	existing := player.Inv.FindByItemID(int32(itemID))
-	wasExisting := existing != nil && stackable
-
-	invItem := player.Inv.AddItem(
-		int32(itemID), count, itemInfo.Name, itemInfo.InvGfx,
-		itemInfo.Weight, stackable, byte(itemInfo.Bless),
-	)
-	invItem.EnchantLvl = enchant
-	invItem.UseType = itemInfo.UseTypeID
-
-	if wasExisting {
-		sendItemCountUpdate(sess, invItem)
-	} else {
-		sendAddItem(sess, invItem)
-	}
-	sendWeightUpdate(sess, player)
+	deps.GMCmd.GiveItem(sess, player, int32(itemID), count, enchant)
 
 	name := itemInfo.Name
 	if enchant > 0 {
@@ -389,28 +324,9 @@ func gmGold(sess *net.Session, player *world.PlayerInfo, args []string, deps *De
 		return
 	}
 
-	adenaInfo := deps.Items.Get(world.AdenaItemID)
-	if adenaInfo == nil {
-		gmMsg(sess, "\\f3找不到金幣物品模板")
-		return
-	}
+	deps.GMCmd.GiveGold(sess, player, int32(amount))
 
-	existing := player.Inv.FindByItemID(world.AdenaItemID)
-	wasExisting := existing != nil
-
-	invItem := player.Inv.AddItem(
-		world.AdenaItemID, int32(amount), adenaInfo.Name, adenaInfo.InvGfx,
-		0, true, byte(adenaInfo.Bless),
-	)
-
-	if wasExisting {
-		sendItemCountUpdate(sess, invItem)
-	} else {
-		sendAddItem(sess, invItem)
-	}
-	sendWeightUpdate(sess, player)
-
-	gmMsgf(sess, "已給予 %d 金幣 (持有: %d)", amount, invItem.Count)
+	gmMsgf(sess, "已給予 %d 金幣 (持有: %d)", amount, player.Inv.GetAdena())
 }
 
 func gmSpell(sess *net.Session, player *world.PlayerInfo, args []string, deps *Deps) {

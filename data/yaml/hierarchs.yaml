@@ -1,0 +1,41 @@
+hierarchs:
+  - item_id: 39007
+    npc_id: 220172
+    gfx_id: 6443
+    name: 初級隨身祭司
+    name_id: 初級隨身祭司
+    tier: 1
+    hp: 100
+    mp: 100
+    duration: 1800
+    buff_skills: [26, 42]
+  - item_id: 39008
+    npc_id: 220173
+    gfx_id: 6443
+    name: 中級隨身祭司
+    name_id: 中級隨身祭司
+    tier: 2
+    hp: 150
+    mp: 150
+    duration: 1800
+    buff_skills: [26, 42, 151]
+  - item_id: 39009
+    npc_id: 220174
+    gfx_id: 6443
+    name: 高級隨身祭司
+    name_id: 高級隨身祭司
+    tier: 3
+    hp: 200
+    mp: 200
+    duration: 1800
+    buff_skills: [26, 42, 168, 79]
+  - item_id: 39010
+    npc_id: 220175
+    gfx_id: 6443
+    name: 頂級隨身祭司
+    name_id: 頂級隨身祭司
+    tier: 4
+    hp: 250
+    mp: 250
+    duration: 1800
+    buff_skills: [26, 42, 168, 79, 68]

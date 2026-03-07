@@ -70,6 +70,12 @@ type InvItem struct {
 	// Level: 0-5（強化階段）
 	AttrEnchantKind  int8
 	AttrEnchantLevel int8
+
+	// 旅館鑰匙額外欄位（Java: L1ItemInstance.keyId / innNpcId / isHall / dueTime）
+	InnKeyID  int32     // 鑰匙 ID（= 物品 ObjectID，用於匹配房間）
+	InnNpcID  int32     // 旅館 NPC 模板 ID
+	InnHall   bool      // 是否為會議室鑰匙
+	InnDueTime int64    // 租約到期時間（Unix 秒，0=非旅館鑰匙）
 }
 
 // Inventory holds a player's in-memory item list.

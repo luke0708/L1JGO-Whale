@@ -95,57 +95,7 @@ func handlePowerItemBuy(sess *net.Session, r *packet.Reader, count int, player *
 
 		pItem := items[idx]
 
-		// 驗證金幣
-		adena := player.Inv.GetAdena()
-		if adena < pItem.Price {
-			sendServerMessage(sess, 189) // 金幣不足
-			return
-		}
-
-		// 驗證背包容量
-		if player.Inv.IsFull() {
-			sendServerMessage(sess, 270) // 背包已滿
-			return
-		}
-
-		// 扣除金幣
-		adenaItem := player.Inv.FindByItemID(world.AdenaItemID)
-		if adenaItem == nil {
-			return
-		}
-		adenaItem.Count -= pItem.Price
-		player.Dirty = true
-		if adenaItem.Count <= 0 {
-			player.Inv.RemoveItem(adenaItem.ObjectID, 0)
-			sendRemoveInventoryItem(sess, adenaItem.ObjectID)
-		} else {
-			sendItemCountUpdate(sess, adenaItem)
-		}
-
-		// 給予強化物品
-		itemInfo := deps.Items.Get(pItem.ItemID)
-		itemName := fmt.Sprintf("item#%d", pItem.ItemID)
-		gfxID := int32(0)
-		weight := int32(0)
-		stackable := false
-		bless := byte(pItem.Bless)
-		if itemInfo != nil {
-			itemName = itemInfo.Name
-			gfxID = itemInfo.InvGfx
-			weight = itemInfo.Weight
-			stackable = itemInfo.Stackable
-			if pItem.Bless == 0 {
-				bless = byte(itemInfo.Bless)
-			}
-		}
-
-		newItem := player.Inv.AddItemWithID(0, pItem.ItemID, 1, itemName, gfxID, weight, stackable, bless)
-		newItem.EnchantLvl = int8(pItem.EnchantLvl)
-		newItem.Identified = true
-		if pItem.AttrKind > 0 {
-			newItem.AttrEnchantKind = int8(pItem.AttrKind)
-			newItem.AttrEnchantLevel = int8(pItem.AttrLevel)
-		}
-		sendAddItem(sess, newItem, itemInfo)
+		// 委派給系統執行購買
+		deps.PowerItemMgr.BuyPowerItem(sess, player, pItem)
 	}
 }

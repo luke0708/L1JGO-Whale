@@ -86,7 +86,7 @@ func (s *PolymorphSystem) DoPoly(player *world.PlayerInfo, polyID int32, duratio
 		}
 		old := player.AddBuff(buff)
 		if old != nil {
-			handler.RevertBuffStats(player, old)
+			s.deps.Skill.RevertBuffStats(player, old)
 		}
 
 		// 發送變身計時圖示：S_PacketBox sub 35

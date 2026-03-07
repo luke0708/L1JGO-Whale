@@ -1,8 +1,6 @@
 package handler
 
 import (
-	"fmt"
-
 	"github.com/l1jgo/server/internal/net"
 	"github.com/l1jgo/server/internal/net/packet"
 	"github.com/l1jgo/server/internal/world"
@@ -10,9 +8,8 @@ import (
 
 const (
 	statAllocAttrCode uint16 = 479 // Java C_Attr case 479 — stat allocation
-	maxStatValue      int16  = 35  // per-stat cap
-	maxTotalStats     int16  = 210 // sum of all 6 base stats cap
 	bonusStatMinLevel int16  = 51  // minimum level to earn bonus stat points
+	maxTotalStats     int16  = 210 // 六屬性總和上限（enterworld.go 也使用）
 )
 
 // HandlePlate processes C_PLATE (opcode 10) — stat point allocation (bonus stats at level 51+).
@@ -28,11 +25,11 @@ func HandlePlate(sess *net.Session, r *packet.Reader, deps *Deps) {
 
 // handleStatAlloc is the core stat allocation logic, called either from HandlePlate
 // or from HandleBoardOrPlate when opcode 10 is not a board request.
+// Handler 只做解析 + 驗證 + 委派給 StatAllocSystem。
 func handleStatAlloc(sess *net.Session, attrCode uint16, confirm byte, r *packet.Reader, deps *Deps) {
 	if attrCode != statAllocAttrCode {
 		return
 	}
-
 	if confirm != 1 {
 		return
 	}
@@ -43,80 +40,12 @@ func handleStatAlloc(sess *net.Session, attrCode uint16, confirm byte, r *packet
 	if player == nil || player.Dead {
 		return
 	}
-
-	// Must be level 51+
 	if player.Level < bonusStatMinLevel {
 		return
 	}
 
-	// Check available bonus points: (level - 50) total earned, BonusStats already used
-	available := player.Level - 50 - player.BonusStats
-	if available <= 0 {
-		return
-	}
-
-	// Check total stats cap
-	totalStats := player.Str + player.Dex + player.Con + player.Wis + player.Intel + player.Cha
-	if totalStats >= maxTotalStats {
-		return
-	}
-
-	// Apply stat increase
-	switch statName {
-	case "str":
-		if player.Str >= maxStatValue {
-			sendServerMessage(sess, 481)
-			return
-		}
-		player.Str++
-	case "dex":
-		if player.Dex >= maxStatValue {
-			sendServerMessage(sess, 481)
-			return
-		}
-		player.Dex++
-	case "con":
-		if player.Con >= maxStatValue {
-			sendServerMessage(sess, 481)
-			return
-		}
-		player.Con++
-	case "wis":
-		if player.Wis >= maxStatValue {
-			sendServerMessage(sess, 481)
-			return
-		}
-		player.Wis++
-	case "int":
-		if player.Intel >= maxStatValue {
-			sendServerMessage(sess, 481)
-			return
-		}
-		player.Intel++
-	case "cha":
-		if player.Cha >= maxStatValue {
-			sendServerMessage(sess, 481)
-			return
-		}
-		player.Cha++
-	default:
-		return
-	}
-
-	player.BonusStats++
-	player.Dirty = true
-
-	deps.Log.Info(fmt.Sprintf("配點完成  角色=%s  屬性=%s  已用配點=%d", player.Name, statName, player.BonusStats))
-
-	// Send updated status to client
-	sendPlayerStatus(sess, player)
-	sendAbilityScores(sess, player)
-
-	// Show dialog again if more points available
-	remainingBonus := player.Level - 50 - player.BonusStats
-	newTotal := player.Str + player.Dex + player.Con + player.Wis + player.Intel + player.Cha
-	if remainingBonus > 0 && newTotal < maxTotalStats {
-		sendRaiseAttrDialog(sess, player.CharID)
+	if deps.StatAlloc != nil {
+		deps.StatAlloc.AllocStat(sess, player, statName)
 	}
 }
 

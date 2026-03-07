@@ -70,6 +70,17 @@ type PlayerInfo struct {
 	Food         int16 // satiety 0-225 (225=full); sent in S_STATUS
 	FoodFullTime int64 // 飽食度達 225 的時刻（Unix 秒）；-1=未滿（Java: _h_time，生存吶喊用）
 	PKCount       int32 // PK kill count
+	KillCount     int32 // PvP 擊殺累計（排名用）
+	DeathCount    int32 // PvP 死亡累計（排名用）
+	PartnerID      int32 // 配偶角色 ID（0=未婚；結婚系統用）
+	MarriageRingID int32 // 結婚時使用的戒指物品 ID（Java: QUEST_MARRY step）
+	// 釣魚系統
+	Fishing       bool  // 是否正在釣魚
+	FishX         int32 // 釣點 X 座標
+	FishY         int32 // 釣點 Y 座標
+	FishingPoleID int32 // 使用中的釣竿物品 ID
+	FishingTick   int   // 釣魚計時器（tick 計數）
+
 	Karma         int32 // 善惡值（Java: L1Karma）— 正=善, 負=惡
 	PinkName      bool  // temporary red name (180 seconds after attacking blue player)
 	PinkNameTicks int   // remaining ticks for pink name timer
@@ -209,6 +220,12 @@ type PlayerInfo struct {
 	FireSmithNpcObjID int32
 	CnShopNpcID       int32 // 最近瀏覽的寄賣商城 NPC ID（購買時用於查詢商品）
 	PowerItemNpcID    int32 // 最近瀏覽的強化物品商店 NPC ID
+	PendingAuctionHouseID int32 // 拍賣出價待處理的小屋 ID（0=無）
+
+	// 旅館租房：記錄 S_HowManyKey 發送後的待處理狀態
+	PendingInnNpcObjID int32 // 旅館 NPC 物件 ID（0=無待處理）
+	PendingInnRoomNum  int32 // 選中的房間號碼
+	PendingInnHall     bool  // 是否租會議室
 
 	// Paginated teleport (Npc_Teleport): current browsing state
 	TelePage     int    // current page (0-based)
@@ -221,9 +238,9 @@ type PlayerInfo struct {
 	// Exclude/block list (session-only, max 16 entries, NOT persisted)
 	ExcludeList []string
 
-	// 已完成任務（登入時從 character_quests 載入，status=1）
-	// key=quest_id, value=true
-	QuestsDone map[int32]bool
+	// 任務進度（登入時從 character_quests 載入）
+	// key=quest_id, value=step（0=未開始, 1~254=進行中, 255=已完成）
+	Quests map[int32]int32
 
 	// 物品使用延遲（runtime-only，不持久化）
 	// key=DelayID (如 502=道具共用), value=到期時間
@@ -365,9 +382,26 @@ func (p *PlayerInfo) RemoveBuff(skillID int32) *ActiveBuff {
 	return old
 }
 
-// IsQuestDone 檢查指定任務是否已完成。
+// IsQuestDone 檢查指定任務是否已完成（step == 255）。
 func (p *PlayerInfo) IsQuestDone(questID int32) bool {
-	return p.QuestsDone[questID]
+	return p.Quests[questID] == 255
+}
+
+// QuestStep 取得指定任務的進度步驟（0=未開始）。
+func (p *PlayerInfo) QuestStep(questID int32) int32 {
+	return p.Quests[questID]
+}
+
+// SetQuestStep 設定任務進度步驟。
+func (p *PlayerInfo) SetQuestStep(questID, step int32) {
+	if p.Quests == nil {
+		p.Quests = make(map[int32]int32)
+	}
+	if step == 0 {
+		delete(p.Quests, questID)
+	} else {
+		p.Quests[questID] = step
+	}
 }
 
 // KnownPos 記錄已知實體的最後位置（用於離開視野時解鎖格子）。
@@ -380,6 +414,7 @@ type KnownEntities struct {
 	Npcs        map[int32]KnownPos // NPC 實例 ID → 位置
 	Summons     map[int32]KnownPos // 召喚獸 ID → 位置
 	Dolls       map[int32]KnownPos // 魔法娃娃 ID → 位置
+	Hierarchs   map[int32]KnownPos // 隨身祭司 ID → 位置
 	Followers   map[int32]KnownPos // 隨從 ID → 位置
 	Pets        map[int32]KnownPos // 寵物 ID → 位置
 	GroundItems map[int32]KnownPos // 地面物品 ID → 位置
@@ -393,6 +428,7 @@ func NewKnownEntities() *KnownEntities {
 		Npcs:        make(map[int32]KnownPos),
 		Summons:     make(map[int32]KnownPos),
 		Dolls:       make(map[int32]KnownPos),
+		Hierarchs:   make(map[int32]KnownPos),
 		Followers:   make(map[int32]KnownPos),
 		Pets:        make(map[int32]KnownPos),
 		GroundItems: make(map[int32]KnownPos),
@@ -406,6 +442,7 @@ func (k *KnownEntities) Reset() {
 	clear(k.Npcs)
 	clear(k.Summons)
 	clear(k.Dolls)
+	clear(k.Hierarchs)
 	clear(k.Followers)
 	clear(k.Pets)
 	clear(k.GroundItems)
@@ -510,12 +547,14 @@ type State struct {
 	doors    map[int32]*DoorInfo // door object ID → DoorInfo
 	doorList []*DoorInfo         // all doors (for tick iteration)
 
-	pets      map[int32]*PetInfo      // pet object ID → PetInfo
-	summons   map[int32]*SummonInfo   // summon object ID → SummonInfo
-	dolls     map[int32]*DollInfo     // doll object ID → DollInfo
-	followers map[int32]*FollowerInfo // follower object ID → FollowerInfo
+	pets       map[int32]*PetInfo       // pet object ID → PetInfo
+	summons    map[int32]*SummonInfo    // summon object ID → SummonInfo
+	dolls      map[int32]*DollInfo      // doll object ID → DollInfo
+	followers  map[int32]*FollowerInfo  // follower object ID → FollowerInfo
+	hierarchs  map[int32]*HierarchInfo  // hierarch object ID → HierarchInfo
 
-	groundItems map[int32]*GroundItem // ground item object ID → GroundItem
+	groundItems   map[int32]*GroundItem // ground item object ID → GroundItem
+	furnitureNpcs map[int32]int32      // 道具 objectID → NPC objectID
 
 	Parties     *PartyManager
 	ChatParties *ChatPartyManager
@@ -563,7 +602,8 @@ func NewState() *State {
 		summons:     make(map[int32]*SummonInfo),
 		dolls:       make(map[int32]*DollInfo),
 		followers:   make(map[int32]*FollowerInfo),
-		groundItems: make(map[int32]*GroundItem),
+		groundItems:   make(map[int32]*GroundItem),
+		furnitureNpcs: make(map[int32]int32),
 		LastHour:    -1,
 	}
 }
@@ -1019,6 +1059,9 @@ func (s *State) GetNearbyGroundItems(x, y int32, mapID int16) []*GroundItem {
 func (s *State) TickGroundItems() []*GroundItem {
 	var expired []*GroundItem
 	for id, item := range s.groundItems {
+		if item.NoExpire {
+			continue
+		}
 		if item.TTL > 0 {
 			item.TTL--
 			if item.TTL <= 0 {
@@ -1028,4 +1071,21 @@ func (s *State) TickGroundItems() []*GroundItem {
 		}
 	}
 	return expired
+}
+
+// --- 家具 NPC 追蹤 ---
+
+// GetFurnitureNpc 查詢道具 objectID 對應的家具 NPC objectID（0=不存在）。
+func (s *State) GetFurnitureNpc(itemObjID int32) int32 {
+	return s.furnitureNpcs[itemObjID]
+}
+
+// AddFurnitureNpc 註冊家具 NPC。
+func (s *State) AddFurnitureNpc(itemObjID, npcObjID int32) {
+	s.furnitureNpcs[itemObjID] = npcObjID
+}
+
+// RemoveFurnitureNpc 移除家具 NPC 追蹤。
+func (s *State) RemoveFurnitureNpc(itemObjID int32) {
+	delete(s.furnitureNpcs, itemObjID)
 }

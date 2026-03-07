@@ -29,6 +29,12 @@ func HandleBookmark(sess *net.Session, r *packet.Reader, deps *Deps) {
 		return
 	}
 
+	// Java: C_AddBookmark — 血盟小屋範圍內不可標記書籤
+	if deps.Houses != nil && deps.Houses.FindHouseAt(player.X, player.Y, player.MapID) != nil {
+		sendServerMessage(sess, 214) // "這個地點不能夠標記。"
+		return
+	}
+
 	// Check for duplicate name
 	for _, bm := range player.Bookmarks {
 		if bm.Name == name {

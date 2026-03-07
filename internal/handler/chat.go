@@ -16,7 +16,8 @@ const (
 	ChatWorld  = 3
 	ChatClan   = 4
 	ChatParty  = 11
-	ChatTrade  = 12
+	ChatTrade    = 12
+	// ChatAlliance 定義在 alliance.go（= 15）
 )
 
 // HandleChat processes C_CHAT (opcode 40) — multi-channel chat.
@@ -135,6 +136,10 @@ func HandleChat(sess *net.Session, r *packet.Reader, deps *Deps) {
 				sendGlobalChat(member.Session, ChatParty, msg)
 			}
 		}
+
+	case ChatAlliance:
+		// 聯盟聊天：發送給聯盟中所有血盟的線上成員
+		handleAllianceChat(sess, player, text, deps)
 
 	default:
 		deps.Log.Debug("unhandled chat type", zap.Uint8("type", chatType))

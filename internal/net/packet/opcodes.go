@@ -41,6 +41,7 @@ const (
 	S_OPCODE_NEW_CHAR_INFO          byte = 127
 	S_OPCODE_VERSION_CHECK          byte = 139 // S_ServerVersion
 	S_OPCODE_CHANGENAME             byte = 46  // S_ChangeName
+	S_OPCODE_HOUSELIST              byte = 156 // S_AuctionBoard（盟屋拍賣公告欄列表）
 	S_OPCODE_ACTION                 byte = 158 // S_DoActionGFX
 	S_OPCODE_ADD_SPELL              byte = 164
 	S_OPCODE_INVISIBLE              byte = 171
@@ -86,6 +87,9 @@ const (
 	S_OPCODE_MAIL                   byte = 186 // S_Mail (mail system)
 	S_OPCODE_NPCSHOUT               byte = 161 // S_NpcChat / S_NpcChatShouting / S_SystemMessage（NPC 聊天 type=0/2/3）
 	S_OPCODE_PRIVATESHOPLIST        byte = 140 // S_PrivateShop（個人商店商品清單）
+	S_OPCODE_CLANMATCHING           byte = 0   // S_ClanMatching（血盟配對系統）
+	S_OPCODE_HOUSEMAP               byte = 187 // S_HouseMap（住宅地圖顯示）
+	S_OPCODE_EFFECTLOCATION         byte = 106 // S_EffectLocation（地點動畫效果，陷阱觸發等）
 )
 
 // ---------- Client Opcodes (V381) ----------
@@ -184,4 +188,5 @@ const (
 	C_OPCODE_SHUTDOWN                byte = 253
 	C_OPCODE_WINDOWS                 byte = 254 // Java: C_Windows（書籤排序/地圖計時等）
 	C_OPCODE_BANISH_PARTY            byte = 255
+	C_OPCODE_CLAN_MATCHING           byte = 76  // C_ClanMatching / C_ClanRecommend（血盟配對系統）
 )

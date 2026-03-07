@@ -1,8 +1,6 @@
 package handler
 
 import (
-	"fmt"
-
 	"github.com/l1jgo/server/internal/data"
 	"github.com/l1jgo/server/internal/net"
 	"github.com/l1jgo/server/internal/net/packet"
@@ -100,29 +98,8 @@ func HandleBuyableSpell(sess *net.Session, r *packet.Reader, deps *Deps) {
 		return
 	}
 
-	// Deduct adena
-	adenaItem := player.Inv.FindByItemID(world.AdenaItemID)
-	if adenaItem == nil {
-		return
-	}
-	adenaItem.Count -= totalCost
-	if adenaItem.Count <= 0 {
-		player.Inv.RemoveItem(adenaItem.ObjectID, 0)
-		sendRemoveInventoryItem(sess, adenaItem.ObjectID)
-	} else {
-		sendItemCountUpdate(sess, adenaItem)
-	}
-
-	// Learn each spell
-	for _, skill := range validSpells {
-		player.KnownSpells = append(player.KnownSpells, skill.SkillID)
-		sendAddSingleSkill(sess, skill)
-	}
-
-	// Play learn sound effect (GFX 224 on player)
-	sendSkillEffect(sess, player.CharID, 224)
-
-	deps.Log.Info(fmt.Sprintf("玩家學習魔法  角色=%s  數量=%d  花費=%d", player.Name, len(validSpells), totalCost))
+	// 委派給系統執行購買學習
+	deps.SpellShopMgr.BuySpells(sess, player, validSpells, totalCost)
 }
 
 // getAvailableSpells returns spells the player can learn but doesn't know yet.
