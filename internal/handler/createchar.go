@@ -130,8 +130,8 @@ func HandleCreateChar(sess *net.Session, r *packet.Reader, deps *Deps) {
 	}
 
 	// Calculate init HP/MP via Lua
-	initHP := int16(deps.Scripting.CalcInitHP(int(classType), int(con)))
-	initMP := int16(deps.Scripting.CalcInitMP(int(classType), int(wis)))
+	initHP := int32(deps.Scripting.CalcInitHP(int(classType), int(con)))
+	initMP := int32(deps.Scripting.CalcInitMP(int(classType), int(wis)))
 
 	// Birthday as yyyyMMdd integer
 	now := time.Now()
@@ -204,8 +204,8 @@ func sendNewCharPack(sess *net.Session, c *persist.CharacterRow) {
 	w.WriteC(byte(c.ClassType))
 	w.WriteC(byte(c.Sex))
 	w.WriteH(uint16(c.Lawful))
-	w.WriteH(uint16(c.MaxHP))
-	w.WriteH(uint16(c.MaxMP))
+	w.WriteD(c.MaxHP)
+	w.WriteD(c.MaxMP)
 	w.WriteC(byte(c.AC))
 	w.WriteC(byte(c.Level))
 	w.WriteC(byte(c.Str))

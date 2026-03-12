@@ -189,7 +189,7 @@ func handleSurvivalShout(sess *net.Session, player *world.PlayerInfo, deps *Deps
 	}
 
 	// 計算回復量
-	addHP := int16(0)
+	addHP := int32(0)
 	if minutes >= 30 {
 		// 30 分鐘後：依武器強化等級
 		enchant := int(player.Equip.Weapon().EnchantLvl)
@@ -204,10 +204,10 @@ func handleSurvivalShout(sess *net.Session, player *world.PlayerInfo, deps *Deps
 		default:
 			pct = 0.30 // 0-6 平均
 		}
-		addHP = int16(float64(player.MaxHP) * pct)
+		addHP = int32(float64(player.MaxHP) * pct)
 	} else {
 		// 1-29 分鐘: (分鐘數/100) × MaxHP
-		addHP = int16(float64(player.MaxHP) * float64(minutes) / 100.0)
+		addHP = int32(float64(player.MaxHP) * float64(minutes) / 100.0)
 	}
 
 	if addHP <= 0 {

@@ -673,8 +673,8 @@ func addExp(player *world.PlayerInfo, expGain int32, deps *handler.Deps) {
 
 		// 透過 Lua 擲骰每級 HP/MP 成長
 		result := deps.Scripting.CalcLevelUp(int(player.ClassType), int(player.Con), int(player.Wis))
-		player.MaxHP += int16(result.HP)
-		player.MaxMP += int16(result.MP)
+		player.MaxHP += int32(result.HP)
+		player.MaxMP += int32(result.MP)
 		player.HP = player.MaxHP // 升級時滿血
 		player.MP = player.MaxMP
 	}

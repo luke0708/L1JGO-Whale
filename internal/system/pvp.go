@@ -95,7 +95,7 @@ func (s *PvPSystem) HandlePvPAttack(attacker, target *world.PlayerInfo) {
 		if world.RandInt(100)+1 <= 25 {
 			cbDmg := s.calcCounterBarrierDmg(target)
 			if cbDmg > 0 {
-				attacker.HP -= int16(cbDmg)
+				attacker.HP -= int32(cbDmg)
 				if attacker.HP < 0 {
 					attacker.HP = 0
 				}
@@ -119,7 +119,7 @@ func (s *PvPSystem) HandlePvPAttack(attacker, target *world.PlayerInfo) {
 	}
 
 	if damage > 0 {
-		target.HP -= int16(damage)
+		target.HP -= int32(damage)
 		if target.HP < 0 {
 			target.HP = 0
 		}
@@ -281,7 +281,7 @@ func (s *PvPSystem) HandlePvPFarAttack(attacker, target *world.PlayerInfo) {
 	}
 
 	if damage > 0 {
-		target.HP -= int16(damage)
+		target.HP -= int32(damage)
 		if target.HP < 0 {
 			target.HP = 0
 		}

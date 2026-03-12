@@ -21,13 +21,17 @@ const (
 	SlotTShirt  EquipSlot = 14
 	SlotRing3       EquipSlot = 15 // 第3戒指欄（Lv76 任務開通）
 	SlotRing4       EquipSlot = 16 // 第4戒指欄（Lv81 任務開通）
-	SlotRuneLeft    EquipSlot = 17 // 符石 左（3.80C 只有 client idx 22 可用）
-	SlotRuneMiddle  EquipSlot = 18 // 符石 中（3.80C 共用 client idx 22）
-	SlotRuneRight   EquipSlot = 19 // 符石 右（3.80C 共用 client idx 22）
-	SlotTalisman    EquipSlot = 20 // 六芒星護身符（Java type 18 → idx 25）
-	SlotTalisman2   EquipSlot = 21 // 蒂蜜特紋樣（Java type 19 → idx 26）
-	SlotTalisman3   EquipSlot = 22 // 蒂蜜特符文（Java type 20 → idx 27）
-	SlotMax         EquipSlot = 23
+	SlotRuneLeft    EquipSlot = 17 // 符石
+	SlotRune2       EquipSlot = 18 // 第二符石
+	SlotEarring2    EquipSlot = 19 // 第二耳環
+	SlotPants       EquipSlot = 20 // 褲子
+	SlotExpand1     EquipSlot = 21 // 擴展欄1
+	SlotExpand2     EquipSlot = 22 // 擴展欄2
+	SlotExpand3     EquipSlot = 23 // 擴展欄3
+	SlotExpand4     EquipSlot = 24 // 擴展欄4
+	SlotBadge       EquipSlot = 25 // 徽章
+	SlotPauldron    EquipSlot = 26 // 盾甲
+	SlotMax         EquipSlot = 27
 )
 
 // Equipment tracks what a player currently has equipped.
@@ -85,16 +89,24 @@ func ArmorSlotFromType(armorType string) EquipSlot {
 		return SlotBelt
 	case "runeword_left":
 		return SlotRuneLeft
-	case "runeword_middle":
-		return SlotRuneMiddle
-	case "runeword_right":
-		return SlotRuneRight
-	case "talisman":
-		return SlotTalisman
-	case "talisman2":
-		return SlotTalisman2
-	case "talisman3":
-		return SlotTalisman3
+	case "rune2":
+		return SlotRune2
+	case "earring2":
+		return SlotEarring2
+	case "pants":
+		return SlotPants
+	case "expand1":
+		return SlotExpand1
+	case "expand2":
+		return SlotExpand2
+	case "expand3":
+		return SlotExpand3
+	case "expand4":
+		return SlotExpand4
+	case "badge":
+		return SlotBadge
+	case "pauldron":
+		return SlotPauldron
 	default:
 		return SlotNone
 	}
@@ -179,9 +191,9 @@ type EquipStats struct {
 func IsAccessorySlot(slot EquipSlot) bool {
 	switch slot {
 	case SlotAmulet, SlotRing1, SlotRing2, SlotRing3, SlotRing4,
-		SlotGuarder, SlotEarring,
-		SlotRuneLeft, SlotRuneMiddle, SlotRuneRight,
-		SlotTalisman, SlotTalisman2, SlotTalisman3:
+		SlotGuarder, SlotEarring, SlotEarring2,
+		SlotRuneLeft, SlotRune2,
+		SlotBadge, SlotPauldron:
 		return true
 	}
 	return false
@@ -195,21 +207,21 @@ func EquipClientIndex(slot EquipSlot) byte {
 	case SlotHelm:
 		return 1 // Java: type 1 (頭盔) → idx = type = 1
 	case SlotArmor:
-		return 11 // Java: type 2 (盔甲) → idx = 11
+		return 2 // EQUIPMENT_INDEX_ARMOR = 2
 	case SlotTShirt:
-		return 2 // Java: type 3 (內衣) → idx = 2
+		return 3 // EQUIPMENT_INDEX_T = 3
 	case SlotCloak:
 		return 4 // Java: type 4 (斗篷) → idx = 4
 	case SlotGlove:
-		return 3 // Java: type 5 (手套) → idx = 3
+		return 6 // EQUIPMENT_INDEX_GLOVE = 6
 	case SlotBoots:
-		return 22 // Java: type 6 (靴子) → idx = 22
+		return 5 // EQUIPMENT_INDEX_BOOTS = 5
 	case SlotShield:
 		return 7 // Java: type 7 (盾牌) → idx = 7
 	case SlotBelt:
-		return 8 // Java: type 10 (腰帶) → idx = 8
+		return 11 // EQUIPMENT_INDEX_BELT = 11
 	case SlotWeapon:
-		return 6 // Java: EQUIPMENT_INDEX_WEAPON = 6（預設8 已改為6）
+		return 8 // EQUIPMENT_INDEX_WEAPON 原始預設 = 8
 	case SlotAmulet:
 		return 10 // Java: type 8 (項鍊) → idx = 10
 	case SlotGuarder:
@@ -224,14 +236,26 @@ func EquipClientIndex(slot EquipSlot) byte {
 		return 20 // Java: EQUIPMENT_INDEX_RING3 = 20
 	case SlotRing4:
 		return 21 // Java: EQUIPMENT_INDEX_RING4 = 21
-	case SlotRuneLeft, SlotRuneMiddle, SlotRuneRight:
-		return 22 // 3.80C 客戶端只有 1 個符石視覺欄位（index 22）
-	case SlotTalisman:
-		return 25 // Java: type 18 (六芒星護身符) → idx = 25
-	case SlotTalisman2:
-		return 26 // Java: type 19 (蒂蜜特紋樣) → idx = 26
-	case SlotTalisman3:
-		return 27 // Java: type 20 (蒂蜜特符文) → idx = 27
+	case SlotRuneLeft:
+		return 22 // 符石
+	case SlotRune2:
+		return 23 // 第二符石
+	case SlotEarring2:
+		return 24 // 第二耳環
+	case SlotPants:
+		return 25 // 褲子
+	case SlotExpand1:
+		return 26 // 擴展欄1
+	case SlotExpand2:
+		return 27 // 擴展欄2
+	case SlotExpand3:
+		return 28 // 擴展欄3
+	case SlotExpand4:
+		return 29 // 擴展欄4
+	case SlotBadge:
+		return 30 // 徽章
+	case SlotPauldron:
+		return 31 // 盾甲
 	}
 	return 0
 }

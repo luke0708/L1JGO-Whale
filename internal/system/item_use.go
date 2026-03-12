@@ -51,7 +51,7 @@ func (s *ItemUseSystem) UseConsumable(sess *net.Session, player *world.PlayerInf
 					healAmt = 1
 				}
 				if player.HP < player.MaxHP {
-					player.HP += int16(healAmt)
+					player.HP += int32(healAmt)
 					if player.HP > player.MaxHP {
 						player.HP = player.MaxHP
 					}
@@ -74,7 +74,7 @@ func (s *ItemUseSystem) UseConsumable(sess *net.Session, player *world.PlayerInf
 					mpAmt = pot.Amount + rand.Intn(pot.Range)
 				}
 				if player.MP < player.MaxMP {
-					player.MP += int16(mpAmt)
+					player.MP += int32(mpAmt)
 					if player.MP > player.MaxMP {
 						player.MP = player.MaxMP
 					}
@@ -1054,15 +1054,15 @@ func enchantScrollBless(itemID int32, yamlBless int) int {
 
 func sendHpUpdate(sess *net.Session, player *world.PlayerInfo) {
 	w := packet.NewWriterWithOpcode(packet.S_OPCODE_HIT_POINT)
-	w.WriteH(uint16(player.HP))
-	w.WriteH(uint16(player.MaxHP))
+	w.WriteD(player.HP)
+	w.WriteD(player.MaxHP)
 	sess.Send(w.Bytes())
 }
 
 func sendMpUpdate(sess *net.Session, player *world.PlayerInfo) {
 	w := packet.NewWriterWithOpcode(packet.S_OPCODE_MANA_POINT)
-	w.WriteH(uint16(player.MP))
-	w.WriteH(uint16(player.MaxMP))
+	w.WriteD(player.MP)
+	w.WriteD(player.MaxMP)
 	sess.Send(w.Bytes())
 }
 
@@ -1088,6 +1088,7 @@ func sendBravePacket(sess *net.Session, charID int32, braveType byte, duration u
 	w.WriteD(charID)
 	w.WriteC(braveType)
 	w.WriteH(duration)
+	w.WriteH(0) // padding — Java S_SkillBrave 固定尾碼
 	sess.Send(w.Bytes())
 }
 

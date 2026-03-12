@@ -624,56 +624,75 @@ func gmKillAll(sess *net.Session, player *world.PlayerInfo, deps *Deps) {
 
 func gmSpeed(sess *net.Session, player *world.PlayerInfo, args []string, deps *Deps) {
 	if len(args) < 1 {
-		gmMsg(sess, "\\f3用法: .speed <0|1|2>  (0=正常,1=加速,2=勇水)")
+		gmMsg(sess, "\\f3用法: .speed <0-4>  (0=正常,1=加速,2=勇水,3=巧克力蛋糕,4=精靈餅乾)")
 		return
 	}
 	spd, err := strconv.Atoi(args[0])
-	if err != nil || spd < 0 || spd > 3 {
-		gmMsg(sess, "\\f3速度必須在 0-3 之間")
+	if err != nil || spd < 0 || spd > 4 {
+		gmMsg(sess, "\\f3速度必須在 0-4 之間")
 		return
 	}
 
+	// 先清除舊狀態
+	player.MoveSpeed = 0
+	player.BraveSpeed = 0
+	player.HasteTicks = 0
+	player.BraveTicks = 0
+
+	const dur = 3600      // 封包中的秒數
+	const ticks = 3600 * 5 // 內部 tick 數（1小時）
+
 	switch spd {
 	case 0:
-		player.MoveSpeed = 0
-		player.BraveSpeed = 0
-		player.HasteTicks = 0
-		player.BraveTicks = 0
+		// 取消全部：分別發送 haste 和 brave 取消封包
 		sendSpeedPacket(sess, player.CharID, 0, 0)
+		sendBravePacket(sess, player.CharID, 0, 0)
 	case 1:
+		// 一段加速（移動加速）
 		player.MoveSpeed = 1
-		player.HasteTicks = 3600 * 5 // 1 hour
-		sendSpeedPacket(sess, player.CharID, 1, 3600)
+		player.HasteTicks = ticks
+		sendSpeedPacket(sess, player.CharID, 1, dur)
 	case 2:
+		// 二段加速（移動 + 勇敢藥水）
 		player.MoveSpeed = 1
 		player.BraveSpeed = 1
-		player.HasteTicks = 3600 * 5
-		player.BraveTicks = 3600 * 5
-		sendSpeedPacket(sess, player.CharID, 1, 3600)
-		sendSpeedPacket(sess, player.CharID, 3, 3600)
+		player.HasteTicks = ticks
+		player.BraveTicks = ticks
+		sendSpeedPacket(sess, player.CharID, 1, dur)
+		sendBravePacket(sess, player.CharID, 1, dur)
 	case 3:
+		// 巧克力蛋糕（移動 + 超級勇敢 braveSpeed=5）
+		player.MoveSpeed = 1
+		player.BraveSpeed = 5
+		player.HasteTicks = ticks
+		player.BraveTicks = ticks
+		sendSpeedPacket(sess, player.CharID, 1, dur)
+		sendBravePacket(sess, player.CharID, 5, dur)
+	case 4:
+		// 精靈餅乾（移動 + 精靈勇敢 braveSpeed=3）
 		player.MoveSpeed = 1
 		player.BraveSpeed = 3
-		player.HasteTicks = 3600 * 5
-		player.BraveTicks = 3600 * 5
-		sendSpeedPacket(sess, player.CharID, 1, 3600)
-		sendSpeedPacket(sess, player.CharID, 3, 3600)
+		player.HasteTicks = ticks
+		player.BraveTicks = ticks
+		sendSpeedPacket(sess, player.CharID, 1, dur)
+		sendBravePacket(sess, player.CharID, 3, dur)
 	}
 
-	// Broadcast to nearby
+	// 廣播給附近玩家
 	nearby := deps.World.GetNearbyPlayers(player.X, player.Y, player.MapID, sess.ID)
 	for _, other := range nearby {
-		if spd == 0 {
-			sendSpeedPacket(other.Session, player.CharID, 0, 0)
-		} else {
-			sendSpeedPacket(other.Session, player.CharID, 1, 0)
-			if player.BraveSpeed > 0 {
-				sendSpeedPacket(other.Session, player.CharID, player.BraveSpeed, 0)
-			}
+		sendSpeedPacket(other.Session, player.CharID, player.MoveSpeed, 0)
+		if player.BraveSpeed > 0 {
+			sendBravePacket(other.Session, player.CharID, player.BraveSpeed, 0)
+		} else if spd == 0 {
+			sendBravePacket(other.Session, player.CharID, 0, 0)
 		}
 	}
 
-	names := []string{"正常", "加速", "二段加速", "精靈勇水"}
+	// 更新角色狀態（讓客戶端 buff 圖標正確顯示）
+	SendPlayerStatus(sess, player)
+
+	names := []string{"正常", "加速", "勇敢藥水", "巧克力蛋糕", "精靈餅乾"}
 	gmMsgf(sess, "移動速度已設為: %s", names[spd])
 }
 
@@ -904,17 +923,17 @@ func gmShowInfo(sess *net.Session, player *world.PlayerInfo) {
 }
 
 // calcBaseHPMP estimates HP/MP for a given level using Lua formulas.
-func calcBaseHPMP(classType, level, con, wis int16, deps *Deps) (int16, int16) {
+func calcBaseHPMP(classType, level, con, wis int16, deps *Deps) (int32, int32) {
 	// Get starting HP/MP from Lua character creation data
-	initHP := int16(deps.Scripting.CalcInitHP(int(classType), int(con)))
-	initMP := int16(deps.Scripting.CalcInitMP(int(classType), int(wis)))
+	initHP := int32(deps.Scripting.CalcInitHP(int(classType), int(con)))
+	initMP := int32(deps.Scripting.CalcInitMP(int(classType), int(wis)))
 
 	baseHP := initHP
 	baseMP := initMP
 	for lv := int16(2); lv <= level; lv++ {
 		result := deps.Scripting.CalcLevelUp(int(classType), int(con), int(wis))
-		baseHP += int16(result.HP)
-		baseMP += int16(result.MP)
+		baseHP += int32(result.HP)
+		baseMP += int32(result.MP)
 	}
 
 	return baseHP, baseMP

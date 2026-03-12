@@ -69,8 +69,8 @@ func (s *CharResetSystem) Start(sess *net.Session, player *world.PlayerInfo) {
 	// 重算初始 HP/MP
 	initHP := s.deps.Scripting.CalcInitHP(int(player.ClassType), int(player.Con))
 	initMP := s.deps.Scripting.CalcInitMP(int(player.ClassType), int(player.Wis))
-	player.MaxHP = int16(initHP)
-	player.MaxMP = int16(initMP)
+	player.MaxHP = int32(initHP)
+	player.MaxMP = int32(initMP)
 	player.HP = player.MaxHP
 	player.MP = player.MaxMP
 	player.Level = 1
@@ -122,8 +122,8 @@ func (s *CharResetSystem) ResetStage1(sess *net.Session, player *world.PlayerInf
 	player.Cha = newCha
 
 	// 重算 HP/MP
-	player.MaxHP = int16(s.deps.Scripting.CalcInitHP(int(player.ClassType), int(player.Con)))
-	player.MaxMP = int16(s.deps.Scripting.CalcInitMP(int(player.ClassType), int(player.Wis)))
+	player.MaxHP = int32(s.deps.Scripting.CalcInitHP(int(player.ClassType), int(player.Con)))
+	player.MaxMP = int32(s.deps.Scripting.CalcInitMP(int(player.ClassType), int(player.Wis)))
 	player.HP = player.MaxHP
 	player.MP = player.MaxMP
 
@@ -249,8 +249,8 @@ func (s *CharResetSystem) resetLevelUp(player *world.PlayerInfo, levels int) boo
 		player.Level = player.ResetTempLevel
 
 		result := s.deps.Scripting.CalcLevelUp(int(player.ClassType), int(player.Con), int(player.Wis))
-		player.MaxHP += int16(result.HP)
-		player.MaxMP += int16(result.MP)
+		player.MaxHP += int32(result.HP)
+		player.MaxMP += int32(result.MP)
 	}
 	player.HP = player.MaxHP
 	player.MP = player.MaxMP

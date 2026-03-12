@@ -1007,10 +1007,10 @@ func (s *CompanionAISystem) hierarchAutoBuff(h *world.HierarchInfo, master *worl
 
 	// 自動治療：主人 HP < MaxHP * HealThreshold / 10 時治療
 	if h.MP >= 15 && h.HealThreshold > 0 {
-		threshold := int16(int32(master.MaxHP) * int32(h.HealThreshold) / 10)
+		threshold := master.MaxHP * int32(h.HealThreshold) / 10
 		if master.HP < threshold {
 			// 回復量 = 30 + 隨機 0-75（Java: lawful + random(75)）
-			heal := int16(30 + world.RandInt(76))
+			heal := int32(30 + world.RandInt(76))
 			master.HP += heal
 			if master.HP > master.MaxHP {
 				master.HP = master.MaxHP

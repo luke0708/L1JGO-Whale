@@ -98,7 +98,7 @@ func (s *RegenSystem) tickHPRegen(p *world.PlayerInfo) {
 		return
 	}
 
-	total := int16(amount)
+	total := int32(amount)
 
 	// 血盟小屋 HP 回復加成（Java: HprExecutor + ConfigOther.HOMEHPR）
 	total += s.houseHPBonus(p)
@@ -143,7 +143,7 @@ func (s *RegenSystem) tickMPRegen(p *world.PlayerInfo) {
 		return
 	}
 
-	total := int16(amount)
+	total := int32(amount)
 
 	// 血盟小屋 MP 回復加成（Java: MprExecutor + ConfigOther.HOMEMPR）
 	total += s.houseMPBonus(p)
@@ -178,17 +178,17 @@ func (s *RegenSystem) isInHouse(p *world.PlayerInfo) bool {
 }
 
 // houseHPBonus 回傳血盟小屋 HP 回復加成。
-func (s *RegenSystem) houseHPBonus(p *world.PlayerInfo) int16 {
+func (s *RegenSystem) houseHPBonus(p *world.PlayerInfo) int32 {
 	if s.cfg != nil && s.cfg.Gameplay.HouseHPRBonus > 0 && s.isInHouse(p) {
-		return int16(s.cfg.Gameplay.HouseHPRBonus)
+		return int32(s.cfg.Gameplay.HouseHPRBonus)
 	}
 	return 0
 }
 
 // houseMPBonus 回傳血盟小屋 MP 回復加成。
-func (s *RegenSystem) houseMPBonus(p *world.PlayerInfo) int16 {
+func (s *RegenSystem) houseMPBonus(p *world.PlayerInfo) int32 {
 	if s.cfg != nil && s.cfg.Gameplay.HouseMPRBonus > 0 && s.isInHouse(p) {
-		return int16(s.cfg.Gameplay.HouseMPRBonus)
+		return int32(s.cfg.Gameplay.HouseMPRBonus)
 	}
 	return 0
 }
@@ -196,16 +196,16 @@ func (s *RegenSystem) houseMPBonus(p *world.PlayerInfo) int16 {
 // ---------- Packet helpers ----------
 // These duplicate the minimal packet builders to avoid circular import with handler/.
 
-func sendHPUpdatePacket(sess *net.Session, hp, maxHP int16) {
+func sendHPUpdatePacket(sess *net.Session, hp, maxHP int32) {
 	w := packet.NewWriterWithOpcode(packet.S_OPCODE_HIT_POINT)
-	w.WriteH(uint16(hp))
-	w.WriteH(uint16(maxHP))
+	w.WriteD(hp)
+	w.WriteD(maxHP)
 	sess.Send(w.Bytes())
 }
 
-func sendMPUpdatePacket(sess *net.Session, mp, maxMP int16) {
+func sendMPUpdatePacket(sess *net.Session, mp, maxMP int32) {
 	w := packet.NewWriterWithOpcode(packet.S_OPCODE_MANA_POINT)
-	w.WriteH(uint16(mp))
-	w.WriteH(uint16(maxMP))
+	w.WriteD(mp)
+	w.WriteD(maxMP)
 	sess.Send(w.Bytes())
 }

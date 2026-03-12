@@ -190,14 +190,14 @@ func (s *CraftSystem) ExecuteCraft(sess *net.Session, player *world.PlayerInfo, 
 
 	// 消耗 HP/MP
 	if recipe.HPConsume > 0 {
-		player.HP -= int16(recipe.HPConsume)
+		player.HP -= int32(recipe.HPConsume)
 		if player.HP < 1 {
 			player.HP = 1
 		}
 		handler.SendHpUpdate(sess, player)
 	}
 	if recipe.MPConsume > 0 {
-		player.MP -= int16(recipe.MPConsume)
+		player.MP -= int32(recipe.MPConsume)
 		if player.MP < 0 {
 			player.MP = 0
 		}

@@ -107,7 +107,7 @@ func (s *TrapSystem) trapDamage(sess *net.Session, player *world.PlayerInfo, tra
 			dmg += rand.Int31n(tpl.Dice) + 1
 		}
 	}
-	player.HP -= int16(dmg)
+	player.HP -= dmg
 	if player.HP < 0 {
 		player.HP = 0
 	}
@@ -128,7 +128,7 @@ func (s *TrapSystem) trapHeal(sess *net.Session, player *world.PlayerInfo, trap 
 			heal += rand.Int31n(tpl.Dice) + 1
 		}
 	}
-	player.HP += int16(heal)
+	player.HP += heal
 	if player.HP > player.MaxHP {
 		player.HP = player.MaxHP
 	}
@@ -144,7 +144,7 @@ func (s *TrapSystem) trapPoison(sess *net.Session, player *world.PlayerInfo, tra
 	switch tpl.PoisonType {
 	case 1: // 一般型中毒（直接傷害）
 		if tpl.PoisonDamage > 0 {
-			player.HP -= int16(tpl.PoisonDamage)
+			player.HP -= int32(tpl.PoisonDamage)
 			if player.HP < 0 {
 				player.HP = 0
 			}

@@ -180,13 +180,13 @@ func (s *SkillSystem) processSkill(sessID uint64, skillID, targetID int32) {
 	}
 
 	// HP 消耗檢查
-	if skill.HpConsume > 0 && player.HP <= int16(skill.HpConsume) {
+	if skill.HpConsume > 0 && player.HP <= int32(skill.HpConsume) {
 		handler.SendServerMessage(sess, skillMsgNotEnoughHP)
 		return
 	}
 
 	// MP 消耗檢查
-	if skill.MpConsume > 0 && player.MP < int16(skill.MpConsume) {
+	if skill.MpConsume > 0 && player.MP < int32(skill.MpConsume) {
 		handler.SendServerMessage(sess, skillMsgNotEnoughMP)
 		return
 	}
@@ -247,11 +247,11 @@ func (s *SkillSystem) processSkill(sessID uint64, skillID, targetID int32) {
 
 	// --- 消耗資源（MP、HP、材料）---
 	if skill.MpConsume > 0 {
-		player.MP -= int16(skill.MpConsume)
+		player.MP -= int32(skill.MpConsume)
 		sendMpUpdate(sess, player)
 	}
 	if skill.HpConsume > 0 {
-		player.HP -= int16(skill.HpConsume)
+		player.HP -= int32(skill.HpConsume)
 		sendHpUpdate(sess, player)
 	}
 	if skill.ItemConsumeID > 0 && skill.ItemConsumeCount > 0 {
@@ -311,11 +311,11 @@ func (s *SkillSystem) processSkill(sessID uint64, skillID, targetID int32) {
 // consumeSkillResources 扣除 MP/HP/材料並設定冷卻。
 func (s *SkillSystem) consumeSkillResources(sess *net.Session, player *world.PlayerInfo, skill *data.SkillInfo) {
 	if skill.MpConsume > 0 {
-		player.MP -= int16(skill.MpConsume)
+		player.MP -= int32(skill.MpConsume)
 		sendMpUpdate(sess, player)
 	}
 	if skill.HpConsume > 0 {
-		player.HP -= int16(skill.HpConsume)
+		player.HP -= int32(skill.HpConsume)
 		sendHpUpdate(sess, player)
 	}
 	if skill.ItemConsumeID > 0 && skill.ItemConsumeCount > 0 {
@@ -410,15 +410,15 @@ func (s *SkillSystem) resurrectPlayer(target *world.PlayerInfo, caster *world.Pl
 	eff := s.deps.Scripting.GetResurrectEffect(int(skill.SkillID))
 	if eff != nil {
 		if eff.FixedHP == -1 {
-			target.HP = int16(caster.Level)
+			target.HP = int32(caster.Level)
 		} else if eff.FixedHP > 0 {
-			target.HP = int16(eff.FixedHP)
+			target.HP = int32(eff.FixedHP)
 		} else {
-			target.HP = int16(float64(target.MaxHP) * eff.HPRatio)
-			target.MP = int16(float64(target.MaxMP) * eff.MPRatio)
+			target.HP = int32(float64(target.MaxHP) * eff.HPRatio)
+			target.MP = int32(float64(target.MaxMP) * eff.MPRatio)
 		}
 	} else {
-		target.HP = int16(target.Level)
+		target.HP = int32(target.Level)
 	}
 
 	if target.HP < 1 {
@@ -655,9 +655,9 @@ func (s *SkillSystem) executeAttackSkill(sess *net.Session, player *world.Player
 
 	// 吸血系技能：傷害轉為治療（Java: CHILL_TOUCH / VAMPIRIC_TOUCH — heal = this._dmg）
 	if skill.SkillID == 28 || skill.SkillID == 10 {
-		totalDmg := int16(0)
+		totalDmg := int32(0)
 		for _, t := range hits {
-			totalDmg += int16(t.dmg)
+			totalDmg += int32(t.dmg)
 		}
 		if totalDmg > 0 {
 			player.HP += totalDmg
@@ -914,7 +914,7 @@ func (s *SkillSystem) executeBuffSkill(sess *net.Session, player *world.PlayerIn
 		handler.SendCurseBlind(target.Session, 0)
 
 	case 39: // 魔力奪取
-		drain := int16(5 + world.RandInt(10))
+		drain := int32(5 + world.RandInt(10))
 		if target.MP >= drain {
 			target.MP -= drain
 			player.MP += drain
@@ -1052,7 +1052,7 @@ func (s *SkillSystem) executeBuffSkill(sess *net.Session, player *world.PlayerIn
 		if skill.Area == -1 {
 			// 範圍治療
 			for _, p := range nearby {
-				heal := int16(s.deps.Scripting.CalcHeal(skill.DamageValue, skill.DamageDice, skill.DamageDiceCount, casterINT, casterSP))
+				heal := int32(s.deps.Scripting.CalcHeal(skill.DamageValue, skill.DamageDice, skill.DamageDiceCount, casterINT, casterSP))
 				if heal > 0 && p.HP < p.MaxHP {
 					p.HP += heal
 					if p.HP > p.MaxHP {
@@ -1063,7 +1063,7 @@ func (s *SkillSystem) executeBuffSkill(sess *net.Session, player *world.PlayerIn
 			}
 		} else {
 			// 單目標治療
-			heal := int16(s.deps.Scripting.CalcHeal(skill.DamageValue, skill.DamageDice, skill.DamageDiceCount, casterINT, casterSP))
+			heal := int32(s.deps.Scripting.CalcHeal(skill.DamageValue, skill.DamageDice, skill.DamageDiceCount, casterINT, casterSP))
 			if heal > 0 && target.HP < target.MaxHP {
 				target.HP += heal
 				if target.HP > target.MaxHP {
@@ -1572,7 +1572,7 @@ func (s *SkillSystem) executeSelfSkill(sess *net.Session, player *world.PlayerIn
 		casterSP := int(player.SP)
 
 		if skill.Area == -1 {
-			heal := int16(s.deps.Scripting.CalcHeal(skill.DamageValue, skill.DamageDice, skill.DamageDiceCount, casterINT, casterSP))
+			heal := int32(s.deps.Scripting.CalcHeal(skill.DamageValue, skill.DamageDice, skill.DamageDiceCount, casterINT, casterSP))
 			if heal > 0 && player.HP < player.MaxHP {
 				player.HP += heal
 				if player.HP > player.MaxHP {
@@ -1584,7 +1584,7 @@ func (s *SkillSystem) executeSelfSkill(sess *net.Session, player *world.PlayerIn
 				if p.SessionID == sess.ID {
 					continue
 				}
-				h := int16(s.deps.Scripting.CalcHeal(skill.DamageValue, skill.DamageDice, skill.DamageDiceCount, casterINT, casterSP))
+				h := int32(s.deps.Scripting.CalcHeal(skill.DamageValue, skill.DamageDice, skill.DamageDiceCount, casterINT, casterSP))
 				if h > 0 && p.HP < p.MaxHP {
 					p.HP += h
 					if p.HP > p.MaxHP {
@@ -1594,7 +1594,7 @@ func (s *SkillSystem) executeSelfSkill(sess *net.Session, player *world.PlayerIn
 				}
 			}
 		} else {
-			heal := int16(s.deps.Scripting.CalcHeal(skill.DamageValue, skill.DamageDice, skill.DamageDiceCount, casterINT, casterSP))
+			heal := int32(s.deps.Scripting.CalcHeal(skill.DamageValue, skill.DamageDice, skill.DamageDiceCount, casterINT, casterSP))
 			if heal > 0 && player.HP < player.MaxHP {
 				player.HP += heal
 				if player.HP > player.MaxHP {
@@ -1982,7 +1982,7 @@ func (s *SkillSystem) executeTeleportSpell(sess *net.Session, player *world.Play
 
 	// --- 驗證通過，消耗 MP ---
 	if skill.MpConsume > 0 {
-		player.MP -= int16(skill.MpConsume)
+		player.MP -= int32(skill.MpConsume)
 		sendMpUpdate(sess, player)
 	}
 
@@ -2082,8 +2082,8 @@ func (s *SkillSystem) applyBuffEffect(target *world.PlayerInfo, skill *data.Skil
 		buff.DeltaWis = int16(eff.Wis)
 		buff.DeltaIntel = int16(eff.Intel)
 		buff.DeltaCha = int16(eff.Cha)
-		buff.DeltaMaxHP = int16(eff.MaxHP)
-		buff.DeltaMaxMP = int16(eff.MaxMP)
+		buff.DeltaMaxHP = int32(eff.MaxHP)
+		buff.DeltaMaxMP = int32(eff.MaxMP)
 		buff.DeltaHitMod = int16(eff.HitMod)
 		buff.DeltaDmgMod = int16(eff.DmgMod)
 		buff.DeltaSP = int16(eff.SP)

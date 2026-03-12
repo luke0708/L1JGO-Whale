@@ -523,7 +523,7 @@ func (s *NpcAISystem) npcMeleeAttack(npc *world.NpcInfo, target *world.PlayerInf
 		return
 	}
 
-	target.HP -= int16(damage)
+	target.HP -= int32(damage)
 	target.Dirty = true
 	if target.HP <= 0 {
 		target.HP = 0
@@ -585,7 +585,7 @@ func (s *NpcAISystem) npcRangedAttack(npc *world.NpcInfo, target *world.PlayerIn
 		return
 	}
 
-	target.HP -= int16(damage)
+	target.HP -= int32(damage)
 	target.Dirty = true
 	if target.HP <= 0 {
 		target.HP = 0
@@ -686,7 +686,7 @@ func (s *NpcAISystem) executeNpcSkill(npc *world.NpcInfo, target *world.PlayerIn
 				if dmg < 1 {
 					dmg = 1
 				}
-				p.HP -= int16(dmg)
+				p.HP -= int32(dmg)
 				p.Dirty = true
 				if p.HP <= 0 {
 					p.HP = 0
@@ -725,7 +725,7 @@ func (s *NpcAISystem) executeNpcSkill(npc *world.NpcInfo, target *world.PlayerIn
 				npc.X, npc.Y, target.X, target.Y)
 			handler.BroadcastToPlayers(nearby, skillAtkData)
 
-			target.HP -= int16(damage)
+			target.HP -= int32(damage)
 			target.Dirty = true
 			if target.HP <= 0 {
 				target.HP = 0
@@ -799,7 +799,7 @@ func (s *NpcAISystem) executeNpcPhysicalSkill(npc *world.NpcInfo, target *world.
 		handler.SendParalysis(target.Session, handler.SleepRemove)
 	}
 
-	target.HP -= int16(damage)
+	target.HP -= int32(damage)
 	target.Dirty = true
 	if target.HP <= 0 {
 		target.HP = 0
@@ -1300,10 +1300,10 @@ func buildNpcUseAttackSkill(casterID, targetID int32, damage int16, heading int1
 	return w.Bytes()
 }
 
-func sendHPUpdate(sess *gonet.Session, hp, maxHP int16) {
+func sendHPUpdate(sess *gonet.Session, hp, maxHP int32) {
 	w := packet.NewWriterWithOpcode(packet.S_OPCODE_HIT_POINT)
-	w.WriteH(uint16(hp))
-	w.WriteH(uint16(maxHP))
+	w.WriteD(hp)
+	w.WriteD(maxHP)
 	sess.Send(w.Bytes())
 }
 

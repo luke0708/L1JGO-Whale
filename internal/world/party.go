@@ -279,7 +279,7 @@ func (m *ChatPartyManager) MembersNameList(partyID int32, getPlayerName func(int
 
 // CalcPartyHP returns the party HP display byte (0-10, proportional to HP%).
 // Used in S_PUT_OBJECT for the overhead HP bar. 0xFF = not in party.
-func CalcPartyHP(hp, maxHP int16) byte {
+func CalcPartyHP(hp, maxHP int32) byte {
 	if maxHP <= 0 {
 		return 0
 	}
@@ -295,7 +295,7 @@ func CalcPartyHP(hp, maxHP int16) byte {
 
 // CalcHPPercent returns HP as 0-100 percentage.
 // Used in S_HPMeter and S_PacketBox party list packets.
-func CalcHPPercent(hp, maxHP int16) byte {
+func CalcHPPercent(hp, maxHP int32) byte {
 	if maxHP <= 0 {
 		return 0
 	}

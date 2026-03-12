@@ -32,11 +32,11 @@ func HandleSummonRingSelection(sess *net.Session, player *world.PlayerInfo, summ
 	}
 
 	// Re-validate MP/HP/materials (player state may have changed since dialog was shown)
-	if skill.HpConsume > 0 && player.HP <= int16(skill.HpConsume) {
+	if skill.HpConsume > 0 && player.HP <= int32(skill.HpConsume) {
 		sendServerMessage(sess, msgNotEnoughHP)
 		return
 	}
-	if skill.MpConsume > 0 && player.MP < int16(skill.MpConsume) {
+	if skill.MpConsume > 0 && player.MP < int32(skill.MpConsume) {
 		sendServerMessage(sess, msgNotEnoughMP)
 		return
 	}

@@ -53,9 +53,9 @@ func TickPlayerPoison(p *world.PlayerInfo, deps *handler.Deps) {
 		p.PoisonDmgTimer++
 		if p.PoisonDmgTimer >= 15 {
 			p.PoisonDmgTimer = 0
-			dmg := int16(20)
+			dmg := int32(20)
 			if p.PoisonDmgAmount > 0 {
-				dmg = p.PoisonDmgAmount
+				dmg = int32(p.PoisonDmgAmount)
 			}
 			p.HP -= dmg
 			p.Dirty = true

@@ -71,7 +71,8 @@ func (s *PersistenceSystem) savePlayers(dirtyOnly bool) {
 		// 儲存時必須扣除裝備加成和 buff 加成，只保存基礎值。
 		// 否則重新登入時 InitEquipStats / loadAndRestoreBuffs 會重複疊加，造成屬性膨脹。
 		eq := p.EquipBonuses
-		var bStr, bDex, bCon, bWis, bIntel, bCha, bMaxHP, bMaxMP int16
+		var bStr, bDex, bCon, bWis, bIntel, bCha int16
+		var bMaxHP, bMaxMP int32
 		for _, b := range p.ActiveBuffs {
 			bStr += b.DeltaStr
 			bDex += b.DeltaDex
@@ -88,8 +89,8 @@ func (s *PersistenceSystem) savePlayers(dirtyOnly bool) {
 			Exp:        int64(p.Exp),
 			HP:         p.HP,
 			MP:         p.MP,
-			MaxHP:      p.MaxHP - int16(eq.AddHP) - bMaxHP,
-			MaxMP:      p.MaxMP - int16(eq.AddMP) - bMaxMP,
+			MaxHP:      p.MaxHP - int32(eq.AddHP) - bMaxHP,
+			MaxMP:      p.MaxMP - int32(eq.AddMP) - bMaxMP,
 			X:          p.X,
 			Y:          p.Y,
 			MapID:      p.MapID,

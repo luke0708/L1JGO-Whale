@@ -38,7 +38,7 @@ func (s *GMCommandSystem) SetLevel(sess *net.Session, player *world.PlayerInfo, 
 
 // SetHP 設定玩家 HP（含死亡復活處理）。
 func (s *GMCommandSystem) SetHP(sess *net.Session, player *world.PlayerInfo, hp int) {
-	player.HP = int16(hp)
+	player.HP = int32(hp)
 	if player.HP > player.MaxHP {
 		player.MaxHP = player.HP
 	}
@@ -53,7 +53,7 @@ func (s *GMCommandSystem) SetHP(sess *net.Session, player *world.PlayerInfo, hp 
 
 // SetMP 設定玩家 MP。
 func (s *GMCommandSystem) SetMP(sess *net.Session, player *world.PlayerInfo, mp int) {
-	player.MP = int16(mp)
+	player.MP = int32(mp)
 	if player.MP > player.MaxMP {
 		player.MaxMP = player.MP
 	}
@@ -143,14 +143,14 @@ func (s *GMCommandSystem) GiveGold(sess *net.Session, player *world.PlayerInfo, 
 }
 
 // calcBaseHPMP 計算指定等級的基礎 HP/MP（透過 Lua 重複升級計算）。
-func calcBaseHPMP(classType int16, level int16, con, wis int16, deps *handler.Deps) (int16, int16) {
-	hp := int16(deps.Scripting.CalcInitHP(int(classType), int(con)))
-	mp := int16(deps.Scripting.CalcInitMP(int(classType), int(wis)))
+func calcBaseHPMP(classType int16, level int16, con, wis int16, deps *handler.Deps) (int32, int32) {
+	hp := int32(deps.Scripting.CalcInitHP(int(classType), int(con)))
+	mp := int32(deps.Scripting.CalcInitMP(int(classType), int(wis)))
 
 	for lv := int16(2); lv <= level; lv++ {
 		result := deps.Scripting.CalcLevelUp(int(classType), int(con), int(wis))
-		hp += int16(result.HP)
-		mp += int16(result.MP)
+		hp += int32(result.HP)
+		mp += int32(result.MP)
 	}
 	return hp, mp
 }

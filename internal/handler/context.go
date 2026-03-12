@@ -156,7 +156,7 @@ type ClanManager interface {
 	// SetTitle 設定稱號。
 	SetTitle(sess *net.Session, player *world.PlayerInfo, charName, title string)
 	// HealMember 處理血盟飽食度 HP 回復。
-	HealMember(sess *net.Session, player *world.PlayerInfo, addHP int16)
+	HealMember(sess *net.Session, player *world.PlayerInfo, addHP int32)
 	// UploadEmblem 上傳盟徽。
 	UploadEmblem(sess *net.Session, player *world.PlayerInfo, emblemData []byte)
 	// DownloadEmblem 下載盟徽。

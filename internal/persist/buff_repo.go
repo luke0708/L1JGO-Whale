@@ -18,8 +18,8 @@ type BuffRow struct {
 	DeltaWis      int16
 	DeltaIntel    int16
 	DeltaCha      int16
-	DeltaMaxHP    int16
-	DeltaMaxMP    int16
+	DeltaMaxHP    int32
+	DeltaMaxMP    int32
 	DeltaHitMod   int16
 	DeltaDmgMod   int16
 	DeltaSP       int16

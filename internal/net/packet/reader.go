@@ -1,10 +1,6 @@
 package packet
 
-import (
-	"encoding/binary"
-
-	"golang.org/x/text/encoding/traditionalchinese"
-)
+import "encoding/binary"
 
 // Reader reads L1J packet fields from a decrypted payload.
 // Byte 0 is always the opcode.
@@ -61,20 +57,20 @@ func (r *Reader) ReadS() string {
 		if r.data[r.off] == 0 {
 			raw := r.data[start:r.off]
 			r.off++ // skip null terminator
-			return ms950ToUTF8(raw)
+			return decodeClientString(raw)
 		}
 		r.off++
 	}
-	return ms950ToUTF8(r.data[start:r.off])
+	return decodeClientString(r.data[start:r.off])
 }
 
-// ms950ToUTF8 converts MS950 (Big5) bytes to a UTF-8 string.
-// Pure ASCII passes through unchanged; only multi-byte sequences are decoded.
-func ms950ToUTF8(raw []byte) string {
+// decodeClientString 將客戶端編碼的位元組轉為 UTF-8 字串。
+// 純 ASCII 直接通過，不做轉換。
+func decodeClientString(raw []byte) string {
 	if len(raw) == 0 {
 		return ""
 	}
-	// Fast path: if all bytes are ASCII, no conversion needed
+	// Fast path: 純 ASCII 不需轉換
 	allASCII := true
 	for _, b := range raw {
 		if b >= 0x80 {
@@ -85,9 +81,9 @@ func ms950ToUTF8(raw []byte) string {
 	if allASCII {
 		return string(raw)
 	}
-	decoded, err := traditionalchinese.Big5.NewDecoder().Bytes(raw)
+	decoded, err := textDecoder.Bytes(raw)
 	if err != nil {
-		return string(raw) // fallback to raw bytes
+		return string(raw) // fallback
 	}
 	return string(decoded)
 }

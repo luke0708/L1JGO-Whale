@@ -56,7 +56,7 @@ default_slots = 6              # 預設角色欄位數
 auto_create_accounts = true    # 自動建立帳號（輸入不存在的帳號時自動註冊）
 delete_7_days = true           # 啟用 7 天刪除等待期
 delete_7_days_min_level = 5    # 需等待 7 天才能刪除的最低等級
-client_language_code = "MS950" # 客戶端文字編碼（繁體中文 Big5）
+client_language_code = "MS950" # 客戶端文字編碼：MS950(繁體Big5) 或 GBK(簡體)
 change_title_by_oneself = true # 非盟主的血盟成員是否可自行設定稱號
 
 # ── 遊戲常數設定 ──────────────────────────────────────────────

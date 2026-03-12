@@ -3,8 +3,6 @@ package packet
 import (
 	"encoding/binary"
 	"sync"
-
-	"golang.org/x/text/encoding/traditionalchinese"
 )
 
 // Writer builds an L1J server packet. All multi-byte writes are little-endian.
@@ -49,15 +47,15 @@ func (w *Writer) WriteDU(v uint32) {
 	w.buf = append(w.buf, b[:]...)
 }
 
-// WriteS writes a null-terminated string, converting UTF-8 to MS950 (Big5).
+// WriteS 將 UTF-8 字串轉為客戶端編碼後寫入，以 null 結尾。
 func (w *Writer) WriteS(s string) {
 	if len(s) == 0 {
 		w.buf = append(w.buf, 0) // just null terminator
 		return
 	}
-	encoded, err := traditionalchinese.Big5.NewEncoder().Bytes([]byte(s))
+	encoded, err := textEncoder.Bytes([]byte(s))
 	if err != nil {
-		// Fallback: write raw bytes (works for pure ASCII)
+		// Fallback: 原始位元組（適用於純 ASCII）
 		w.buf = append(w.buf, []byte(s)...)
 	} else {
 		w.buf = append(w.buf, encoded...)

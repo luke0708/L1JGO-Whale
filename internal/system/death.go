@@ -86,14 +86,14 @@ func (s *DeathSystem) ProcessRestart(sess *net.Session, player *world.PlayerInfo
 	// 復活
 	player.Dead = false
 	player.LastMoveTime = 0 // 重置速度驗證
-	player.HP = int16(player.Level)
+	player.HP = int32(player.Level)
 	if player.HP < 1 {
 		player.HP = 1
 	}
 	if player.HP > player.MaxHP {
 		player.HP = player.MaxHP
 	}
-	player.MP = int16(player.Level / 2)
+	player.MP = int32(player.Level / 2)
 	if player.MP > player.MaxMP {
 		player.MP = player.MaxMP
 	}

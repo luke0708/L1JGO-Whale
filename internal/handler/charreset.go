@@ -74,8 +74,8 @@ func SendCharResetLevel(sess *net.Session, p *world.PlayerInfo) {
 	w.WriteC(resetFormatLevel) // 格式 2
 	w.WriteC(byte(p.ResetTempLevel))
 	w.WriteC(byte(p.ResetMaxLevel))
-	w.WriteH(uint16(p.MaxHP))
-	w.WriteH(uint16(p.MaxMP))
+	w.WriteD(p.MaxHP)
+	w.WriteD(p.MaxMP)
 	w.WriteH(uint16(p.AC))
 	w.WriteC(byte(p.Str))
 	w.WriteC(byte(p.Intel))
@@ -90,8 +90,8 @@ func SendCharResetLevel(sess *net.Session, p *world.PlayerInfo) {
 func SendCharResetInit(sess *net.Session, initHP, initMP int, maxLevel int16) {
 	w := packet.NewWriterWithOpcode(packet.S_OPCODE_CHARSYNACK)
 	w.WriteC(resetFormatInit) // 格式 1
-	w.WriteH(uint16(initHP))
-	w.WriteH(uint16(initMP))
+	w.WriteD(int32(initHP))
+	w.WriteD(int32(initMP))
 	w.WriteC(10) // AC = 10（基礎）
 	w.WriteC(byte(maxLevel))
 	sess.Send(w.Bytes())

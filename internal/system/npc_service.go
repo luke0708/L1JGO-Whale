@@ -51,7 +51,7 @@ func (s *NpcServiceSystem) execHeal(sess *net.Session, player *world.PlayerInfo,
 	switch h.HealType {
 	case "random":
 		healRange := h.HealMax - h.HealMin + 1
-		healAmt := int16(rand.Intn(healRange) + h.HealMin)
+		healAmt := int32(rand.Intn(healRange) + h.HealMin)
 		if player.HP < player.MaxHP {
 			player.HP += healAmt
 			if player.HP > player.MaxHP {

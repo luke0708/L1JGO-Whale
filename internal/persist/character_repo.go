@@ -25,10 +25,10 @@ type CharacterRow struct {
 	Intel       int16
 	Level       int16
 	Exp         int64
-	HP          int16
-	MP          int16
-	MaxHP       int16
-	MaxMP       int16
+	HP          int32
+	MP          int32
+	MaxHP       int32
+	MaxMP       int32
 	AC          int16
 	X           int32
 	Y           int32

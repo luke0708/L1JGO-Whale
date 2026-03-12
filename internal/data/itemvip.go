@@ -22,8 +22,8 @@ type ItemVIP struct {
 
 	// 基礎屬性
 	AddAC  int16 `yaml:"add_ac"`
-	AddHP  int16 `yaml:"add_hp"`
-	AddMP  int16 `yaml:"add_mp"`
+	AddHP  int32 `yaml:"add_hp"`
+	AddMP  int32 `yaml:"add_mp"`
 	AddHPR int16 `yaml:"add_hpr"`
 	AddMPR int16 `yaml:"add_mpr"`
 

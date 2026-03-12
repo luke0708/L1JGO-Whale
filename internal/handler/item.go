@@ -10,7 +10,6 @@ import (
 	"github.com/l1jgo/server/internal/net/packet"
 	"github.com/l1jgo/server/internal/world"
 	"go.uber.org/zap"
-	"golang.org/x/text/encoding/traditionalchinese"
 )
 
 // Message IDs for item validation
@@ -699,15 +698,11 @@ func appendEquipSuffix(buf []byte, item *world.InvItem, info *data.ItemInfo) []b
 }
 
 
-// appendStatusString 將 tag 39 + Big5 null-terminated 字串附加到 status bytes 緩衝區。
+// appendStatusString 將 tag 39 + 客戶端編碼 null-terminated 字串附加到 status bytes 緩衝區。
 // Java weapon() 中命中率等欄位使用此格式：writeC(39) + writeS("武器命中 :N")。
 func appendStatusString(buf []byte, text string) []byte {
 	buf = append(buf, 39) // tag 39
-	encoded, err := traditionalchinese.Big5.NewEncoder().Bytes([]byte(text))
-	if err != nil {
-		encoded = []byte(text)
-	}
-	buf = append(buf, encoded...)
+	buf = append(buf, packet.EncodeString(text)...)
 	buf = append(buf, 0) // null terminator
 	return buf
 }
@@ -740,8 +735,8 @@ func appendUint16LE(buf []byte, v uint16) []byte {
 
 func sendHpUpdate(sess *net.Session, player *world.PlayerInfo) {
 	w := packet.NewWriterWithOpcode(packet.S_OPCODE_HIT_POINT)
-	w.WriteH(uint16(player.HP))
-	w.WriteH(uint16(player.MaxHP))
+	w.WriteD(player.HP)
+	w.WriteD(player.MaxHP)
 	sess.Send(w.Bytes())
 }
 
@@ -757,8 +752,8 @@ func SendMpUpdate(sess *net.Session, player *world.PlayerInfo) {
 
 func sendMpUpdate(sess *net.Session, player *world.PlayerInfo) {
 	w := packet.NewWriterWithOpcode(packet.S_OPCODE_MANA_POINT)
-	w.WriteH(uint16(player.MP))
-	w.WriteH(uint16(player.MaxMP))
+	w.WriteD(player.MP)
+	w.WriteD(player.MaxMP)
 	sess.Send(w.Bytes())
 }
 
@@ -769,6 +764,7 @@ func sendBravePacket(sess *net.Session, charID int32, braveType byte, duration u
 	w.WriteD(charID)
 	w.WriteC(braveType)
 	w.WriteH(duration)
+	w.WriteH(0) // padding — Java S_SkillBrave 固定尾碼
 	sess.Send(w.Bytes())
 }
 

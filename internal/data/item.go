@@ -55,11 +55,15 @@ var useTypeMap = map[string]byte{
 	"earring":     40,
 	"fishing_rod": 42,
 	"runeword_left":   43, // 符石（左）
-	"runeword_right":  44, // 符石（右）
-	"runeword_middle": 45, // 符石（中）
-	"talisman":        48, // 六芒星護身符
-	"talisman2":       49, // 蒂蜜特的紋樣系列
-	"talisman3":       51, // 蒂蜜特的符文
+	"rune2":       43, // 第二符石（同符石）
+	"earring2":    40, // 第二耳環（同耳環）
+	"pants":       21, // 褲子（同靴子類防具）
+	"expand1":     24, // 擴展欄1（同飾品類）
+	"expand2":     24, // 擴展欄2（同飾品類）
+	"expand3":     24, // 擴展欄3（同飾品類）
+	"expand4":     24, // 擴展欄4（同飾品類）
+	"badge":       24, // 徽章（同飾品類）
+	"pauldron":    25, // 盾甲（同盾牌類）
 	"del":         46,
 	"normal":      51,
 	"ring":        57,

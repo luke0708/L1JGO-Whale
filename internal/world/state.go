@@ -26,10 +26,10 @@ type PlayerInfo struct {
 	ClanName  string
 	ClanRank  int16
 	ClassType int16 // 0=Prince, 1=Knight, 2=Elf, 3=Wizard, 4=DarkElf, 5=DragonKnight, 6=Illusionist
-	HP        int16
-	MaxHP     int16
-	MP        int16
-	MaxMP     int16
+	HP        int32
+	MaxHP     int32
+	MP        int32
+	MaxMP     int32
 	Str       int16
 	Dex       int16
 	Con       int16
@@ -318,8 +318,8 @@ type ActiveBuff struct {
 	DeltaWis     int16
 	DeltaIntel   int16
 	DeltaCha     int16
-	DeltaMaxHP   int16
-	DeltaMaxMP   int16
+	DeltaMaxHP   int32
+	DeltaMaxMP   int32
 	DeltaHitMod  int16
 	DeltaDmgMod  int16
 	DeltaSP      int16

@@ -53,7 +53,8 @@ func HandleChangeChar(sess *net.Session, _ *packet.Reader, deps *Deps) {
 		// 儲存時必須扣除裝備加成和 buff 加成，只保存基礎值。
 		// 否則重新登入時 InitEquipStats / loadAndRestoreBuffs 會重複疊加，造成屬性膨脹。
 		eq := player.EquipBonuses
-		var bStr, bDex, bCon, bWis, bIntel, bCha, bMaxHP, bMaxMP int16
+		var bStr, bDex, bCon, bWis, bIntel, bCha int16
+		var bMaxHP, bMaxMP int32
 		for _, b := range player.ActiveBuffs {
 			bStr += b.DeltaStr
 			bDex += b.DeltaDex
@@ -70,8 +71,8 @@ func HandleChangeChar(sess *net.Session, _ *packet.Reader, deps *Deps) {
 			Exp:         int64(player.Exp),
 			HP:          player.HP,
 			MP:          player.MP,
-			MaxHP:       player.MaxHP - int16(eq.AddHP) - bMaxHP,
-			MaxMP:       player.MaxMP - int16(eq.AddMP) - bMaxMP,
+			MaxHP:       player.MaxHP - int32(eq.AddHP) - bMaxHP,
+			MaxMP:       player.MaxMP - int32(eq.AddMP) - bMaxMP,
 			X:           player.X,
 			Y:           player.Y,
 			MapID:       player.MapID,
