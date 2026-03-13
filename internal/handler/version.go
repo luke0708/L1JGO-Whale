@@ -32,6 +32,7 @@ func HandleVersion(sess *net.Session, r *packet.Reader, deps *Deps) {
 	w.WriteDU(0x77d82)                // server type（啟用客戶端地形碰撞，匹配 Java yiwei）
 	w.WriteD(uptime)                  // uptime seconds
 	w.WriteH(0x01)                    // unknown
+	w.WriteC(0x00)                    // unknown（Java S_ServerVersion 尾部額外位元組）
 
 	sess.Send(w.Bytes())
 	sess.SetState(packet.StateVersionOK)

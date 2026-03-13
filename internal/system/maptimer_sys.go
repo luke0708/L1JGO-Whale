@@ -137,10 +137,8 @@ func (s *MapTimerSystem) TickMapTimer(player *world.PlayerInfo) (expired bool) {
 		return true // 時間到
 	}
 
-	// 每分鐘發送一次更新（Java: if (leftTime % 60) == 0）
-	if player.MapTimerRemaining%60 == 0 {
-		handler.SendMapTimer(player.Session, player.MapTimerRemaining)
-	}
+	// 每秒發送倒數更新（Java: CheckTimeController 每秒發送 S_MapTimer）
+	handler.SendMapTimer(player.Session, player.MapTimerRemaining)
 	return false
 }
 

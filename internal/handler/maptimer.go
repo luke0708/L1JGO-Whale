@@ -25,37 +25,48 @@ type MapTimerGroup struct {
 }
 
 // mapTimerGroups 所有限時地圖組（對照 Java mapids_group 資料表）。
+// 地圖 ID 必須與 map_list.yaml 一致。
 var mapTimerGroups = []MapTimerGroup{
 	{
 		OrderID: 1, Name: "龍之谷地監", MaxTimeSec: 7200,
-		MapIDs:  []int16{560, 561, 562, 563, 564, 565, 566},
+		MapIDs:  []int16{30, 31, 32, 33, 35, 36},
+		ExitX:   32628, ExitY: 32773, ExitMapID: 4, ExitHead: 5,
+	},
+	{
+		OrderID: 2, Name: "古魯丁地監", MaxTimeSec: 7200,
+		MapIDs:  []int16{7, 8, 9, 10, 11, 12, 13},
+		ExitX:   32611, ExitY: 32820, ExitMapID: 4, ExitHead: 5,
+	},
+	{
+		OrderID: 3, Name: "奇岩地監", MaxTimeSec: 7200,
+		MapIDs:  []int16{53, 54, 55, 56},
+		ExitX:   33433, ExitY: 32812, ExitMapID: 4, ExitHead: 5,
+	},
+	{
+		OrderID: 4, Name: "象牙塔", MaxTimeSec: 7200,
+		MapIDs:  []int16{75, 76, 77, 78, 79, 80, 81, 82},
 		ExitX:   33443, ExitY: 32800, ExitMapID: 4, ExitHead: 5,
 	},
 	{
-		OrderID: 2, Name: "奇岩/古魯丁地監", MaxTimeSec: 7200,
-		MapIDs:  []int16{807, 808, 809, 810, 811, 812, 813, 567, 568, 569, 570},
-		ExitX:   33443, ExitY: 32800, ExitMapID: 4, ExitHead: 5,
-	},
-	{
-		OrderID: 3, Name: "象牙塔", MaxTimeSec: 7200,
-		MapIDs:  []int16{280, 281, 282, 283, 284, 285, 286, 287, 288, 289},
-		ExitX:   33443, ExitY: 32800, ExitMapID: 4, ExitHead: 5,
-	},
-	{
-		OrderID: 4, Name: "新遺忘之島", MaxTimeSec: 7200,
-		MapIDs:  []int16{1700},
-		ExitX:   33443, ExitY: 32800, ExitMapID: 4, ExitHead: 5,
-	},
-	{
-		OrderID: 5, Name: "新傲慢之塔", MaxTimeSec: 7200,
-		MapIDs:  []int16{3301, 3302, 3303, 3304, 3305, 3306, 3307, 3308, 3309, 3310, 7100},
+		OrderID: 5, Name: "傲慢之塔", MaxTimeSec: 7200,
+		MapIDs:  generateMapRange(101, 200, 301),
 		ExitX:   33443, ExitY: 32800, ExitMapID: 4, ExitHead: 5,
 	},
 	{
 		OrderID: 6, Name: "拉斯塔巴德地監", MaxTimeSec: 7200,
-		MapIDs:  []int16{633},
+		MapIDs:  []int16{307, 308, 309, 450},
 		ExitX:   33443, ExitY: 32800, ExitMapID: 4, ExitHead: 5,
 	},
+}
+
+// generateMapRange 生成 [from..to] 連續地圖 ID + 額外 ID。
+func generateMapRange(from, to int16, extra ...int16) []int16 {
+	ids := make([]int16, 0, int(to-from+1)+len(extra))
+	for i := from; i <= to; i++ {
+		ids = append(ids, i)
+	}
+	ids = append(ids, extra...)
+	return ids
 }
 
 // mapToGroupIdx 地圖 ID → mapTimerGroups 索引（快速查找用）。

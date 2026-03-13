@@ -14,17 +14,22 @@ var headingDX = [8]int32{0, 1, 1, 1, 0, -1, -1, -1}
 var headingDY = [8]int32{-1, -1, 0, 1, 1, 1, 0, -1}
 
 // HandleMove processes C_MOVE (opcode 29).
-// Taiwan 3.80C client: heading XOR'd with 0x49, sends current X/Y.
-// Java (Taiwan, CLIENT_LANGUAGE == 3) IGNORES client X/Y and always uses
-// server-tracked position: locx = pc.getX(); locy = pc.getY();
-// We do the same — InQueue is blocking so no packets are dropped.
+// Java C_MoveChar 依語系處理 heading：
+//   language=3 (Taiwan): heading ^= 0x49，且忽略客戶端 X/Y，使用伺服器座標
+//   language=5 (China) 等其他語系: heading 不做 XOR，使用客戶端傳來的 X/Y
+// 我們統一使用伺服器座標（安全性考量），但 heading 解碼必須依語系區分。
 func HandleMove(sess *net.Session, r *packet.Reader, deps *Deps) {
-	_ = r.ReadH() // client X (ignored — Taiwan client offset differs from server)
-	_ = r.ReadH() // client Y (ignored)
+	_ = r.ReadH() // client X（安全考量統一忽略，使用伺服器端座標）
+	_ = r.ReadH() // client Y（同上）
 	rawHeading := r.ReadC()
 
-	// Taiwan client: heading XOR'd with 0x49
-	heading := int16(rawHeading ^ 0x49)
+	// heading 解碼：台版客戶端 XOR 0x49，其他語系（簡體等）直接使用原始值
+	var heading int16
+	if deps.Config.Server.Language == 3 {
+		heading = int16(rawHeading ^ 0x49)
+	} else {
+		heading = int16(rawHeading)
+	}
 
 	if heading < 0 || heading > 7 {
 		return
@@ -54,7 +59,7 @@ func HandleMove(sess *net.Session, r *packet.Reader, deps *Deps) {
 	}
 	player.LastMoveTime = now
 
-	// 永遠使用伺服器端座標（與 Java 台版行為一致）
+	// 永遠使用伺服器端座標（安全性考量，所有語系統一）
 	curX := player.X
 	curY := player.Y
 
