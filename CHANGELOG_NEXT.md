@@ -10,4 +10,4 @@
 - fix: 藍色藥水（40015）和慎重藥水（40016）從 item_vip.yaml 移除 — 錯誤的 VIP 配置攔截了正常藥水邏輯
 - feat: 新增 ChargeCount 基礎設施（DB migration + InvItem 欄位 + 持久化 + 封包傳送）
 - feat: 實現創造怪物魔杖（item_id 40006/140006）— 使用後隨機召喚 25 種怪物之一，扣減充能次數，用完自動刪除
-- fix: spawn_list.yaml 重新轉換 — 修復所有怪物 randomx/randomy=0 導致地下城怪物聚堆問題
+- fix: 怪物聚堆修復 — 還原 spawn_list.yaml（轉換腳本白名單過濾導致 NPC 消失），改由 Go 代碼自動套用 ±3 格隨機範圍（count>1 且 randomx=0 時）

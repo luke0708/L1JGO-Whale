@@ -832,11 +832,18 @@ func spawnNpcs(ws *world.State, npcTable *data.NpcTable, spawns []data.SpawnEntr
 		for i := 0; i < spawn.Count; i++ {
 			x := spawn.X
 			y := spawn.Y
-			if spawn.RandomX > 0 {
-				x += int32(rand.Intn(int(spawn.RandomX*2+1))) - spawn.RandomX
+			rx := spawn.RandomX
+			ry := spawn.RandomY
+			// 多隻怪物同座標時，自動套用預設隨機範圍避免聚堆
+			if rx == 0 && ry == 0 && spawn.Count > 1 {
+				rx = 3
+				ry = 3
 			}
-			if spawn.RandomY > 0 {
-				y += int32(rand.Intn(int(spawn.RandomY*2+1))) - spawn.RandomY
+			if rx > 0 {
+				x += int32(rand.Intn(int(rx*2+1))) - rx
+			}
+			if ry > 0 {
+				y += int32(rand.Intn(int(ry*2+1))) - ry
 			}
 
 			leader := createNpcFromTemplate(tmpl, x, y, spawn.MapID, spawn.Heading, spawn.RespawnDelay, sprTable)
