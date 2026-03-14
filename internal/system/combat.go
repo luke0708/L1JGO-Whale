@@ -340,24 +340,35 @@ func (s *CombatSystem) processRangedAttack(sessID uint64, targetID int32) *handl
 	}
 
 	// 從背包找到並消耗箭矢
+	// 沙哈之弓（item_id=190）無箭時可發射魔法箭（Java: C_AttackBow "$1821" → GfxID=2349）
 	arrow := FindArrow(player, s.deps)
+	isSayha := false
 	if arrow == nil {
-		handler.SendGlobalChat(player.Session, 9, "\\f3沒有箭矢。")
-		return nil
+		wpn := player.Equip.Weapon()
+		if wpn != nil && wpn.ItemID == 190 { // 沙哈之弓
+			isSayha = true
+		} else {
+			handler.SendGlobalChat(player.Session, 9, "\\f3沒有箭矢。")
+			return nil
+		}
 	}
 
-	// 消耗 1 支箭矢
-	arrowRemoved := player.Inv.RemoveItem(arrow.ObjectID, 1)
-	if arrowRemoved {
-		handler.SendRemoveInventoryItem(player.Session, arrow.ObjectID)
-	} else {
-		handler.SendItemCountUpdate(player.Session, arrow)
+	// 消耗 1 支箭矢（沙哈之弓魔法箭不消耗）
+	if !isSayha {
+		arrowRemoved := player.Inv.RemoveItem(arrow.ObjectID, 1)
+		if arrowRemoved {
+			handler.SendRemoveInventoryItem(player.Session, arrow.ObjectID)
+		} else {
+			handler.SendItemCountUpdate(player.Session, arrow)
+		}
 	}
 
-	// 箭矢傷害加成
+	// 箭矢傷害加成（沙哈魔法箭無額外傷害）
 	arrowDmg := 0
-	if arrowInfo := s.deps.Items.Get(arrow.ItemID); arrowInfo != nil {
-		arrowDmg = arrowInfo.DmgSmall
+	if arrow != nil {
+		if arrowInfo := s.deps.Items.Get(arrow.ItemID); arrowInfo != nil {
+			arrowDmg = arrowInfo.DmgSmall
+		}
 	}
 
 	// 從裝備弓取得傷害

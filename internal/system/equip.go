@@ -183,15 +183,15 @@ func (s *EquipSystem) EquipArmor(sess *net.Session, player *world.PlayerInfo, in
 		}
 	}
 
-	// 盾牌 + 腰帶互斥（Java: type 7 和 type 13）
-	if slot == world.SlotShield || slot == world.SlotGuarder {
-		if player.Equip.Get(world.SlotBelt) != nil {
+	// 盾牌 + 臂甲互斥（Java: type 7 和 type 13）
+	if slot == world.SlotShield {
+		if player.Equip.Get(world.SlotGuarder) != nil {
 			handler.SendServerMessage(sess, 124)
 			return
 		}
 	}
-	if slot == world.SlotBelt {
-		if player.Equip.Get(world.SlotShield) != nil || player.Equip.Get(world.SlotGuarder) != nil {
+	if slot == world.SlotGuarder {
+		if player.Equip.Get(world.SlotShield) != nil {
 			handler.SendServerMessage(sess, 124)
 			return
 		}

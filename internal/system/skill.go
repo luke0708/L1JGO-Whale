@@ -1516,17 +1516,13 @@ func (s *SkillSystem) executeSelfSkill(sess *net.Session, player *world.PlayerIn
 			sendMpUpdate(sess, player)
 		}
 
-	case 146: // 魂體轉換 — MP 轉 HP
-		transfer := player.MP / 4
-		if transfer > 0 && player.MP > transfer {
-			player.MP -= transfer
-			player.HP += transfer
-			if player.HP > player.MaxHP {
-				player.HP = player.MaxHP
-			}
-			sendHpUpdate(sess, player)
-			sendMpUpdate(sess, player)
+	case 146: // 魂體轉換 — 增加當前 MP（Java: BLOODY_SOUL +12）
+		addMP := int32(12)
+		player.MP += addMP
+		if player.MP > player.MaxMP {
+			player.MP = player.MaxMP
 		}
+		sendMpUpdate(sess, player)
 
 	case 186: // 血之渴望 — 自身 buff + 勇敢速度（Java: BLOODLUST.java）
 		// 與暴風疾走/聖潔之行等互斥（由 buffs.lua 無 exclusions，brave_speed 會覆蓋）
