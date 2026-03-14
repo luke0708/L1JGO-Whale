@@ -22,6 +22,7 @@ var useTypeMap = map[string]byte{
 	"none":        0xFF, // Java: -1 (signed) = 0xFF (unsigned). Client treats 0xFF as not usable.
 	"weapon":      1,
 	"armor":       2,
+	"spell_1":     3,  // 創造怪物魔杖（無須選取目標）— Java: C_ItemUSe case 3
 	"spell_long":  5,
 	"ntele":       6,
 	"identify":    7,

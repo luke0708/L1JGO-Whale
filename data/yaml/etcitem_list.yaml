@@ -209,7 +209,7 @@ items:
   - item_id: 40006
     name: 松木魔杖
     item_type: wand
-    use_type: normal
+    use_type: spell_1
     material: wood
     weight: 7000
     inv_gfx: 117
@@ -45358,7 +45358,7 @@ items:
   - item_id: 140006
     name: 松木魔杖
     item_type: wand
-    use_type: normal
+    use_type: spell_1
     material: wood
     weight: 7000
     inv_gfx: 117
