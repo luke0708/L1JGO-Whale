@@ -1788,7 +1788,7 @@ items:
     loc_x: 0
     loc_y: 0
     map_id: 0
-    bless: 1
+    bless: 0
     tradeable: true
     delay_id: 0
     delay_time: 0
@@ -2087,7 +2087,7 @@ items:
     loc_x: 0
     loc_y: 0
     map_id: 0
-    bless: 1
+    bless: 0
     tradeable: true
     delay_id: 0
     delay_time: 0

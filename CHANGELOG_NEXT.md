@@ -1,25 +1,9 @@
 # 待推送變更
 
-- fix: 修復 language=5（簡體客戶端）移動系統 heading XOR 問題 — Java C_MoveChar 僅 language=3 時 XOR 0x49，Go 無條件套用導致簡體端所有移動被拒絕（heading 值 >7），造成 NPC/怪物不可見 + 無法互動
-- fix: S_ServerVersion 封包補上 Java 尾部 writeC(0) 缺少的位元組
-- fix: 限時地圖 ID 修正為 3.80C 標準值（龍之谷、古魯丁、奇岩、象牙塔、傲慢之塔、拉斯塔巴德）
-- fix: 限時地圖計時器改為每秒更新（匹配 Java CheckTimeController）
-- fix: 沙哈之弓（item_id=190）無箭時可發射魔法箭（GfxID=2349），不消耗箭矢（匹配 Java C_AttackBow "$1821" 特殊處理）
-- fix: 盾牌↔腰帶互斥修正為盾牌↔臂甲互斥（Java: type 7 ↔ type 13，腰帶不參與互斥）
-- fix: 魂體轉換（技能 146）邏輯修正為增加 MP +12（Java: BLOODY_SOUL），原錯誤邏輯為 MP 轉 HP
-- fix: 藍色藥水（40015）和慎重藥水（40016）從 item_vip.yaml 移除 — 錯誤的 VIP 配置攔截了正常藥水邏輯
-- feat: 新增 ChargeCount 基礎設施（DB migration + InvItem 欄位 + 持久化 + 封包傳送）
-- feat: 實現創造怪物魔杖（item_id 40006/140006）— 使用後隨機召喚 25 種怪物之一，扣減充能次數，用完自動刪除
-- fix: 怪物聚堆修復 — 還原 spawn_list.yaml（轉換腳本白名單過濾導致 NPC 消失），改由 Go 代碼按 count 比例自動套用隨機範圍（count>1 且 randomx=0 時）
-- feat: spawn_list.yaml 新增 spread 欄位 — "point"=固定座標（NPC/Boss）、"area"=散佈（預設，向後相容）
-- data: 從 l1j_java/db 重新產生 spawn_list.yaml — 恢復原始 randomx/randomy（9200 筆帶散佈範圍），NPC 加上 spread:point
-- fix: 地監死亡後計時器不消失 — KillPlayer 清除 MapTimer 狀態 + 發送計時器歸零封包，ProcessRestart 重設計時器
-- feat: 實現烏木魔杖（40007，閃電傷害）— dmg = rand(-5..5) + INT，對 NPC/玩家造成傷害
-- feat: 實現楓木魔杖（40008/140008，變身）— 成功率 = 3*(攻LV-防LV) + 100 - 防MR，隨機怪物外觀
-- fix: wand handler 讀取 spell_long 目標欄位 [D targetObjID][H x][H y]（Java C_ItemUSe use_type=5）
-- fix: 松木魔杖 use_type 錯誤 — normal(51) 改為 spell_1(3)（客戶端不發 C_USE_ITEM）
-- fix: 魔杖使用後 SendAddItem 造成客戶端背包重複物品 — 移除充能扣減後的 S_AddItem 發送
-- fix: 登入載入自動修復 ChargeCount=0 的舊魔杖（migration 028 前物品自動恢復滿充能）
-- fix: 閃電/楓木魔杖充能歸零不刪除物品（匹配 Java 行為，僅松木魔杖歸零刪除）
-- fix: 閃電魔杖新增玩家目標處理（Java: World.findObject 通用查找 + 安全區檢查）
-- fix: 變身魔杖 GFX 列表對齊 Java 31 個（修正重複值 + 補齊缺漏的奇數 GFX）
+## Bug 修復
+
+- 修復心靈轉換（技能 130）：使用後 MP 全恢復 → 改為固定 +2 MP（匹配 Java BODY_TO_MIND）
+- 修復魂體轉換（技能 146）：實際恢復 12MP 與客戶端提示「恢復19MP」不符 → 改用 skill_level=19 匹配客戶端顯示
+- 修復商店購買魔杖時 charge_count 未寫入 DB → BuyFromNpc 加入 ChargeCount 初始化
+- 修復祝福卷軸只有 +1 效果：移除 enchantScrollBless 中對 40074/40087 的硬編碼覆蓋，YAML 模板 bless 改為 0
+- 新增萬能藥（40033-40038）使用功能：永久 +1 對應屬性（STR/CON/DEX/INT/WIS/CHA），上限 45，總使用次數上限 20

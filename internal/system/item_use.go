@@ -153,6 +153,9 @@ func (s *ItemUseSystem) UseConsumable(sess *net.Session, player *world.PlayerInf
 			}
 			s.BroadcastEffect(sess, player, gfx)
 		}
+	} else if elixirStat := elixirStatField(invItem.ItemID); elixirStat != nil {
+		// 萬能藥（40033-40038）：永久 +1 對應屬性（Java: PanaceaStr/Con/Dex/Int/Wis/Cha）
+		consumed = s.useElixir(sess, player, invItem.ItemID, elixirStat(player))
 	} else if itemInfo.FoodVolume > 0 {
 		// Java: foodvolume1 = item.getFoodVolume() / 10; if <= 0 then 5
 		addFood := int16(itemInfo.FoodVolume / 10)
@@ -1038,16 +1041,64 @@ func checkBraveClassRestrict(classType int16, restrict string) bool {
 	}
 }
 
-// enchantScrollBless 根據物品 ID 判斷正確的祝福分類。
-// 40074（防具）和 40087（武器）在 YAML 中誤標為 bless:1，實際為普通卷軸。
-func enchantScrollBless(itemID int32, yamlBless int) int {
-	if yamlBless == 2 {
-		return 2 // 詛咒卷軸
+// enchantScrollBless 回傳卷軸的祝福分類（0=普通, 1=祝福, 2=詛咒）。
+// 值來自物品實例的 Bless 欄位（DB character_items.bless），直接使用。
+func enchantScrollBless(_ int32, bless int) int {
+	return bless
+}
+
+// ---------- 萬能藥（Elixir） ----------
+
+const (
+	maxElixirStat  int16 = 45 // 單項屬性上限（Java: ConfigAlt.POWERMEDICINE 預設 45）
+	maxElixirUsage int16 = 20 // 萬能藥總使用次數上限（Java: ConfigAlt.MEDICINE 預設 20）
+)
+
+// elixirStatField 回傳萬能藥 itemID 對應的屬性指標取得函式。
+// 非萬能藥時回傳 nil。
+func elixirStatField(itemID int32) func(*world.PlayerInfo) *int16 {
+	switch itemID {
+	case 40033:
+		return func(p *world.PlayerInfo) *int16 { return &p.Str }
+	case 40034:
+		return func(p *world.PlayerInfo) *int16 { return &p.Con }
+	case 40035:
+		return func(p *world.PlayerInfo) *int16 { return &p.Dex }
+	case 40036:
+		return func(p *world.PlayerInfo) *int16 { return &p.Intel }
+	case 40037:
+		return func(p *world.PlayerInfo) *int16 { return &p.Wis }
+	case 40038:
+		return func(p *world.PlayerInfo) *int16 { return &p.Cha }
+	default:
+		return nil
 	}
-	if itemID == 40074 || itemID == 40087 {
-		return 0
+}
+
+// useElixir 使用萬能藥：永久 +1 對應屬性。
+func (s *ItemUseSystem) useElixir(sess *net.Session, player *world.PlayerInfo, itemID int32, stat *int16) bool {
+	// 屬性已達上限
+	if *stat >= maxElixirStat {
+		handler.SendServerMessage(sess, 79) // 沒有任何事情發生
+		return false
 	}
-	return yamlBless
+	// 使用次數上限
+	if player.ElixirStats >= maxElixirUsage {
+		handler.SendServerMessage(sess, 79)
+		return false
+	}
+
+	*stat++
+	player.ElixirStats++
+	player.Dirty = true
+
+	handler.SendPlayerStatus(sess, player)
+	handler.SendAbilityScores(sess, player)
+
+	s.deps.Log.Info(fmt.Sprintf("萬能藥使用  角色=%s  物品=%d  已用=%d/%d",
+		player.Name, itemID, player.ElixirStats, maxElixirUsage))
+
+	return true
 }
 
 // ---------- 領域專用封包 ----------

@@ -1504,20 +1504,15 @@ func (s *SkillSystem) executeSelfSkill(sess *net.Session, player *world.PlayerIn
 			s.revertBuffStats(player, old78)
 		}
 
-	case 130: // 心靈轉換 — HP 轉 MP
-		transfer := player.HP / 4
-		if transfer > 0 && player.HP > transfer {
-			player.HP -= transfer
-			player.MP += transfer
-			if player.MP > player.MaxMP {
-				player.MP = player.MaxMP
-			}
-			sendHpUpdate(sess, player)
-			sendMpUpdate(sess, player)
+	case 130: // 心靈轉換 — 恢復 2 MP（Java: BODY_TO_MIND +2）
+		player.MP += 2
+		if player.MP > player.MaxMP {
+			player.MP = player.MaxMP
 		}
+		sendMpUpdate(sess, player)
 
-	case 146: // 魂體轉換 — 增加當前 MP（Java: BLOODY_SOUL +12）
-		addMP := int32(12)
+	case 146: // 魂體轉換 — 增加當前 MP（Java: BLOODY_SOUL，使用 skill_level 匹配客戶端顯示）
+		addMP := int32(skill.SkillLevel)
 		player.MP += addMP
 		if player.MP > player.MaxMP {
 			player.MP = player.MaxMP

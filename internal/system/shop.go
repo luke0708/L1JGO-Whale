@@ -179,6 +179,9 @@ func (s *ShopSystem) BuyFromNpc(sess *net.Session, r *packet.Reader, count int, 
 
 			item := player.Inv.AddItem(ri.itemID, ri.qty, ri.name, ri.invGfx, ri.weight, true, ri.bless)
 			item.UseType = ri.useTypeID
+			if ri.info != nil && ri.info.MaxChargeCount > 0 {
+				item.ChargeCount = int16(ri.info.MaxChargeCount)
+			}
 
 			if wasExisting {
 				handler.SendItemCountUpdate(sess, item)
@@ -190,6 +193,9 @@ func (s *ShopSystem) BuyFromNpc(sess *net.Session, r *packet.Reader, count int, 
 			for j := int32(0); j < ri.qty; j++ {
 				item := player.Inv.AddItem(ri.itemID, 1, ri.name, ri.invGfx, ri.weight, false, ri.bless)
 				item.UseType = ri.useTypeID
+				if ri.info != nil && ri.info.MaxChargeCount > 0 {
+					item.ChargeCount = int16(ri.info.MaxChargeCount)
+				}
 				handler.SendAddItem(sess, item, ri.info)
 			}
 		}
