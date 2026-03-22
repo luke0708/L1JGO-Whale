@@ -256,6 +256,11 @@ func (s *EquipSystem) EquipArmor(sess *net.Session, player *world.PlayerInfo, in
 		}
 	}
 
+	// 特殊裝備效果：隱身斗篷
+	if invItem.ItemID == 20077 || invItem.ItemID == 120077 {
+		s.applyInvisCloak(sess, player, true)
+	}
+
 	s.deps.Log.Debug("防具裝備",
 		zap.String("player", player.Name),
 		zap.String("armor", invItem.Name),
@@ -291,6 +296,11 @@ func (s *EquipSystem) UnequipSlot(sess *net.Session, player *world.PlayerInfo, s
 
 	// 重新計算屬性
 	s.RecalcEquipStats(sess, player)
+
+	// 特殊效果解除：隱身斗篷
+	if item.ItemID == 20077 || item.ItemID == 120077 {
+		s.applyInvisCloak(sess, player, false)
+	}
 
 	// 套裝破壞時還原變身
 	if brokenSetPoly > 0 {
@@ -697,4 +707,29 @@ func sendCharVisualUpdate(viewer *net.Session, player *world.PlayerInfo) {
 	w.WriteC(0xff)
 	w.WriteC(0xff)
 	viewer.Send(w.Bytes())
+}
+
+// applyInvisCloak 處理隱身斗篷穿脫時的隱身效果。
+// Java: CloakOfInvisibility — 穿上設 invisible、廣播移除；脫下解除、廣播重現。
+func (s *EquipSystem) applyInvisCloak(sess *net.Session, player *world.PlayerInfo, on bool) {
+	player.Invisible = on
+	handler.SendInvisible(sess, player.CharID, on)
+
+	nearby := s.deps.World.GetNearbyPlayersAt(player.X, player.Y, player.MapID)
+	if on {
+		// 隱身：周圍玩家移除我的角色顯示
+		removeData := handler.BuildRemoveObject(player.CharID)
+		for _, other := range nearby {
+			if other.CharID != player.CharID {
+				other.Session.Send(removeData)
+			}
+		}
+	} else {
+		// 解除隱身：周圍玩家重新顯示我
+		for _, other := range nearby {
+			if other.CharID != player.CharID {
+				handler.SendPutObject(other.Session, player)
+			}
+		}
+	}
 }

@@ -193,7 +193,12 @@ func (s *CompanionAISystem) tickSummons() {
 // summonScanForTarget finds the closest alive monster within range 3.
 // Java: summons only aggro nearby enemies; range 3 prevents chasing distant mobs.
 // 只攻擊怪物（L1Monster），不攻擊商店、守衛等友好 NPC。
+// 安全區內不主動攻擊。
 func (s *CompanionAISystem) summonScanForTarget(sum *world.SummonInfo) {
+	// 安全區內不主動攻擊
+	if s.deps.MapData != nil && s.deps.MapData.IsSafetyZone(sum.MapID, sum.X, sum.Y) {
+		return
+	}
 	nearby := s.world.GetNearbyNpcs(sum.X, sum.Y, sum.MapID)
 	var bestDist int32 = 999
 	for _, npc := range nearby {
@@ -639,7 +644,12 @@ func (s *CompanionAISystem) tickPets() {
 
 // petScanForTarget finds the closest alive monster within range 8 for a pet.
 // 只攻擊怪物（L1Monster），不攻擊商店、守衛等友好 NPC。
+// 安全區內不主動攻擊。
 func (s *CompanionAISystem) petScanForTarget(pet *world.PetInfo) {
+	// 安全區內不主動攻擊
+	if s.deps.MapData != nil && s.deps.MapData.IsSafetyZone(pet.MapID, pet.X, pet.Y) {
+		return
+	}
 	nearby := s.world.GetNearbyNpcs(pet.X, pet.Y, pet.MapID)
 	var bestDist int32 = 999
 	for _, npc := range nearby {

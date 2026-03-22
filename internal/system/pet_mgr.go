@@ -185,6 +185,7 @@ func (s *PetSystem) HandlePetAction(sess *net.Session, player *world.PlayerInfo,
 	case "getitem":
 		s.collectPetItems(sess, player, pet)
 	case "changename":
+		player.TempID = pet.ID // 暫存寵物 ID，C_Attr mode 325 回應時使用
 		handler.SendYesNoDialog(sess, 325, pet.Name)
 	}
 }

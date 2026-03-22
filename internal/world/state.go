@@ -69,12 +69,15 @@ type PlayerInfo struct {
 	MagicCritical int16 // 魔法爆擊加成
 	Food         int16 // satiety 0-225 (225=full); sent in S_STATUS
 	FoodFullTime int64 // 飽食度達 225 的時刻（Unix 秒）；-1=未滿（Java: _h_time，生存吶喊用）
+	CookingID    int32 // 當前料理 buff 的 skill ID（0=無）；同時只能有一個
 	AccessLevel   int16 // GM 等級（0=一般玩家, ≥200=GM）
 	PKCount       int32 // PK kill count
 	KillCount     int32 // PvP 擊殺累計（排名用）
 	DeathCount    int32 // PvP 死亡累計（排名用）
 	PartnerID      int32 // 配偶角色 ID（0=未婚；結婚系統用）
 	MarriageRingID int32 // 結婚時使用的戒指物品 ID（Java: QUEST_MARRY step）
+	TempID         int32 // 暫存目標 ID（Java: pc.setTempID）— 寵物改名等用途
+
 	// 釣魚系統
 	Fishing       bool  // 是否正在釣魚
 	FishX         int32 // 釣點 X 座標

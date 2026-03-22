@@ -177,6 +177,10 @@ func (s *ItemUseSystem) UseConsumable(sess *net.Session, player *world.PlayerInf
 			handler.SendFoodUpdate(sess, player.Food)
 			player.Dirty = true
 		}
+		// 料理 buff（Java: L1Cooking.useCookingItem）
+		if cb, ok := cookingBuffMap[invItem.ItemID]; ok {
+			s.applyCookingBuff(sess, player, cb)
+		}
 		consumed = true
 	} else {
 		s.deps.Log.Debug("unhandled etcitem use",
@@ -1683,4 +1687,135 @@ func (s *ItemUseSystem) usePolyMorphWand(sess *net.Session, player *world.Player
 	// 注意：不發送 S_AddItem — 會在客戶端新增重複物品。充能數僅伺服器端追蹤。
 	invItem.ChargeCount--
 	player.Dirty = true
+}
+
+// ========================================================================
+//  料理 Buff 系統
+// ========================================================================
+
+// cookingBuff 定義單一料理的 buff 效果。
+// Java: L1Cooking.eatCooking() — 根據 type 決定屬性加成。
+type cookingBuff struct {
+	SkillID    int32 // buff 追蹤用 skill ID（3000-3051）
+	Duration   int   // 持續時間（秒）
+	DeltaAC    int16
+	DeltaMaxHP int32
+	DeltaMaxMP int32
+	DeltaMR    int16
+	DeltaSP    int16
+	DeltaHPR   int16
+	DeltaMPR   int16
+	DeltaFire  int16
+	DeltaWater int16
+	DeltaWind  int16
+	DeltaEarth int16
+	CookType   int // 料理 type（用於客戶端圖示封包）
+}
+
+// cookingBuffMap 料理物品 ID → buff 效果映射。
+// Java: L1Cooking.useCookingItem() switch + eatCooking()。
+// Lv1 料理持續 900 秒，Lv4 持續 1800 秒。僅收錄有 buff 效果的料理。
+var cookingBuffMap = map[int32]cookingBuff{
+	// --- Lv1 普通 ---
+	41277: {SkillID: 3000, Duration: 900, DeltaFire: 10, DeltaWater: 10, DeltaWind: 10, DeltaEarth: 10, CookType: 0},
+	41278: {SkillID: 3001, Duration: 900, DeltaMaxHP: 30, CookType: 1},
+	41280: {SkillID: 3003, Duration: 900, DeltaAC: -1, CookType: 3},
+	41281: {SkillID: 3004, Duration: 900, DeltaMaxMP: 20, CookType: 4},
+	41283: {SkillID: 3006, Duration: 900, DeltaMR: 5, CookType: 6},
+	// --- Lv1 特別 ---
+	41285: {SkillID: 3008, Duration: 900, DeltaFire: 10, DeltaWater: 10, DeltaWind: 10, DeltaEarth: 10, CookType: 0},
+	41286: {SkillID: 3009, Duration: 900, DeltaMaxHP: 30, CookType: 1},
+	41288: {SkillID: 3011, Duration: 900, DeltaAC: -1, CookType: 3},
+	41289: {SkillID: 3012, Duration: 900, DeltaMaxMP: 20, CookType: 4},
+	41291: {SkillID: 3014, Duration: 900, DeltaMR: 5, CookType: 6},
+	// --- Lv2 普通 ---
+	49050: {SkillID: 3017, Duration: 900, DeltaMaxHP: 30, DeltaMaxMP: 30, CookType: 17},
+	49051: {SkillID: 3018, Duration: 900, DeltaAC: -2, CookType: 18},
+	49054: {SkillID: 3021, Duration: 900, DeltaMR: 10, CookType: 21},
+	49055: {SkillID: 3022, Duration: 900, DeltaSP: 1, CookType: 22},
+	// --- Lv2 特別 ---
+	49058: {SkillID: 3025, Duration: 900, DeltaMaxHP: 30, DeltaMaxMP: 30, CookType: 17},
+	49059: {SkillID: 3026, Duration: 900, DeltaAC: -2, CookType: 18},
+	49062: {SkillID: 3029, Duration: 900, DeltaMR: 10, CookType: 21},
+	49063: {SkillID: 3030, Duration: 900, DeltaSP: 1, CookType: 22},
+	// --- Lv3 普通 ---
+	49245: {SkillID: 3033, Duration: 900, DeltaMaxHP: 50, DeltaMaxMP: 50, CookType: 38},
+	49247: {SkillID: 3035, Duration: 900, DeltaAC: -3, CookType: 40},
+	49248: {SkillID: 3036, Duration: 900, DeltaMR: 15, DeltaFire: 10, DeltaWater: 10, DeltaWind: 10, DeltaEarth: 10, CookType: 41},
+	49249: {SkillID: 3037, Duration: 900, DeltaSP: 2, CookType: 42},
+	49250: {SkillID: 3038, Duration: 900, DeltaMaxHP: 30, CookType: 43},
+	// --- Lv3 特別 ---
+	49253: {SkillID: 3041, Duration: 900, DeltaMaxHP: 50, DeltaMaxMP: 50, CookType: 38},
+	49255: {SkillID: 3043, Duration: 900, DeltaAC: -3, CookType: 40},
+	49256: {SkillID: 3044, Duration: 900, DeltaMR: 15, DeltaFire: 10, DeltaWater: 10, DeltaWind: 10, DeltaEarth: 10, CookType: 41},
+	49257: {SkillID: 3045, Duration: 900, DeltaSP: 2, CookType: 42},
+	49258: {SkillID: 3046, Duration: 900, DeltaMaxHP: 30, CookType: 43},
+	// --- Lv4 ---
+	49825: {SkillID: 3048, Duration: 1800, DeltaMR: 10, DeltaFire: 10, DeltaWater: 10, DeltaWind: 10, DeltaEarth: 10, DeltaHPR: 2, DeltaMPR: 2, CookType: 157},
+	49826: {SkillID: 3049, Duration: 1800, DeltaMR: 10, DeltaFire: 10, DeltaWater: 10, DeltaWind: 10, DeltaEarth: 10, DeltaHPR: 2, DeltaMPR: 2, CookType: 158},
+	49827: {SkillID: 3050, Duration: 1800, DeltaSP: 2, DeltaMR: 10, DeltaFire: 10, DeltaWater: 10, DeltaWind: 10, DeltaEarth: 10, DeltaHPR: 2, DeltaMPR: 3, CookType: 159},
+}
+
+// applyCookingBuff 套用料理 buff。
+// Java: L1Cooking.eatCooking() — 移除舊料理 buff → 套用新 buff → 發送屬性更新封包 + 圖示。
+func (s *ItemUseSystem) applyCookingBuff(sess *net.Session, player *world.PlayerInfo, cb cookingBuff) {
+	// 移除舊料理 buff（同時只能有一個普通料理 buff）
+	if player.CookingID != 0 {
+		handler.RemoveBuffAndRevert(player, player.CookingID, s.deps)
+	}
+
+	// 建立新 buff
+	buff := &world.ActiveBuff{
+		SkillID:       cb.SkillID,
+		TicksLeft:     cb.Duration * 5, // 秒 → ticks（5 ticks/秒）
+		DeltaAC:       cb.DeltaAC,
+		DeltaMaxHP:    cb.DeltaMaxHP,
+		DeltaMaxMP:    cb.DeltaMaxMP,
+		DeltaMR:       cb.DeltaMR,
+		DeltaSP:       cb.DeltaSP,
+		DeltaHPR:      cb.DeltaHPR,
+		DeltaMPR:      cb.DeltaMPR,
+		DeltaFireRes:  cb.DeltaFire,
+		DeltaWaterRes: cb.DeltaWater,
+		DeltaWindRes:  cb.DeltaWind,
+		DeltaEarthRes: cb.DeltaEarth,
+	}
+
+	old := player.AddBuff(buff)
+	if old != nil {
+		s.deps.Skill.RevertBuffStats(player, old)
+	}
+
+	// 套用屬性加成
+	player.AC += cb.DeltaAC
+	player.MaxHP += cb.DeltaMaxHP
+	player.MaxMP += cb.DeltaMaxMP
+	player.MR += cb.DeltaMR
+	player.SP += cb.DeltaSP
+	player.HPR += cb.DeltaHPR
+	player.MPR += cb.DeltaMPR
+	player.FireRes += cb.DeltaFire
+	player.WaterRes += cb.DeltaWater
+	player.WindRes += cb.DeltaWind
+	player.EarthRes += cb.DeltaEarth
+
+	player.CookingID = cb.SkillID
+	player.Dirty = true
+
+	// 發送屬性更新封包
+	if cb.DeltaMaxHP != 0 {
+		handler.SendHpUpdate(sess, player)
+	}
+	if cb.DeltaMaxMP != 0 {
+		handler.SendMpUpdate(sess, player)
+	}
+	if cb.DeltaAC != 0 || cb.DeltaFire != 0 || cb.DeltaWater != 0 || cb.DeltaWind != 0 || cb.DeltaEarth != 0 {
+		handler.SendAbilityScores(sess, player)
+	}
+	if cb.DeltaSP != 0 || cb.DeltaMR != 0 {
+		handler.SendMagicStatus(sess, byte(player.SP), uint16(player.MR))
+	}
+
+	// 發送料理圖示
+	handler.SendCookingIcon(sess, player, cb.CookType, int16(cb.Duration))
 }

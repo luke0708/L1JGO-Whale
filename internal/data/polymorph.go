@@ -98,10 +98,11 @@ func (p *PolymorphInfo) IsWeaponEquipable(weaponType string) bool {
 }
 
 // IsArmorEquipable returns true if the armor type is allowed for this polymorph.
+// 未在 bitmask 映射中的類型（如 earring）預設允許裝備。
 func (p *PolymorphInfo) IsArmorEquipable(armorType string) bool {
 	flag, ok := armorTypeToFlag[armorType]
 	if !ok {
-		return false
+		return true // 未知類型預設允許（耳環等不受變身限制）
 	}
 	return p.ArmorEquip&flag != 0
 }

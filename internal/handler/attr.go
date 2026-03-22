@@ -93,6 +93,13 @@ func HandleAttr(sess *net.Session, r *packet.Reader, deps *Deps) {
 			HandleHouseRename(sess, player, data, houseName, deps)
 		}
 
+	case 325: // 寵物改名（Java: C_Attr case 325）
+		petName := r.ReadS()
+		if accepted && player.TempID != 0 {
+			deps.PetLife.HandlePetNameChange(sess, player, player.TempID, petName)
+		}
+		player.TempID = 0
+
 	case 223: // 聯盟邀請回應（Java: C_Attr case 223）— 暫存 stub
 		// TODO: 處理聯盟邀請接受/拒絕
 

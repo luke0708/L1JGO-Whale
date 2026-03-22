@@ -94,6 +94,11 @@ func sendCookingMenu(sess *net.Session, player *world.PlayerInfo, cookLevel int)
 	sess.Send(w.Bytes())
 }
 
+// SendCookingIcon 匯出 sendCookingIcon — 供 system 套件發送料理圖示。
+func SendCookingIcon(sess *net.Session, player *world.PlayerInfo, cookType int, duration int16) {
+	sendCookingIcon(sess, player, cookType, duration)
+}
+
 // sendCookingIcon 發送料理效果圖示封包。
 // Java: S_PacketBoxCooking type 53 — 料理圖示
 // 格式: writeC(STR) + writeC(INT) + writeC(WIS) + writeC(DEX) + writeC(CON) + writeC(CHA)
