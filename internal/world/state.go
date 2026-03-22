@@ -97,7 +97,9 @@ type PlayerInfo struct {
 	ResetElixirStats int16 // 萬能藥額外點數
 
 	Dead             bool // true when HP <= 0, waiting for restart
-	Invisible        bool // true when under Invisibility
+	PendingResSkill  int32 // 待同意的復活技能 ID（61/75），0=無待復活
+	PendingResCaster int32 // 施法者 CharID
+	Invisible        bool  // true when under Invisibility
 	Paralyzed        bool // true when frozen/stunned/bound
 	Sleeped          bool // true when under sleep effect
 	Silenced         bool // 沉默狀態（沉默毒 / silence 技能）— 禁止施法
@@ -759,6 +761,79 @@ func (s *State) GetNearbyNpcs(x, y int32, mapID int16) []*NpcInfo {
 		}
 	}
 	return result
+}
+
+// GetNpcsAlongLine 回傳從 (x1,y1) 到 (x2,y2) 直線上的所有存活 NPC（Bresenham 演算法）。
+// 用於極光雷電（skill 17）的直線目標判定（Java: getVisibleLineObjects）。
+func (s *State) GetNpcsAlongLine(x1, y1, x2, y2 int32, mapID int16) []*NpcInfo {
+	// 收集直線經過的所有格子座標
+	tiles := bresenhamLine(x1, y1, x2, y2)
+
+	// 取附近所有 NPC 建立座標索引
+	s.npcAoiBuf = s.npcAoi.GetNearbyInto(x1, y1, mapID, s.npcAoiBuf)
+	nearbyIDs := s.npcAoiBuf
+
+	var result []*NpcInfo
+	for _, nid := range nearbyIDs {
+		npc := s.npcs[nid]
+		if npc == nil || npc.Dead || npc.MapID != mapID {
+			continue
+		}
+		for _, t := range tiles {
+			if npc.X == t[0] && npc.Y == t[1] {
+				result = append(result, npc)
+				break
+			}
+		}
+	}
+	return result
+}
+
+// bresenhamLine 回傳從 (x1,y1) 到 (x2,y2) 的 Bresenham 直線格子座標。
+func bresenhamLine(x1, y1, x2, y2 int32) [][2]int32 {
+	dx := x2 - x1
+	dy := y2 - y1
+	if dx < 0 {
+		dx = -dx
+	}
+	if dy < 0 {
+		dy = -dy
+	}
+
+	sx := int32(1)
+	if x1 > x2 {
+		sx = -1
+	}
+	sy := int32(1)
+	if y1 > y2 {
+		sy = -1
+	}
+
+	var tiles [][2]int32
+	if dx >= dy {
+		err := dx / 2
+		y := y1
+		for x := x1; x != x2+sx; x += sx {
+			tiles = append(tiles, [2]int32{x, y})
+			err -= dy
+			if err < 0 {
+				y += sy
+				err += dx
+			}
+		}
+	} else {
+		err := dy / 2
+		x := x1
+		for y := y1; y != y2+sy; y += sy {
+			tiles = append(tiles, [2]int32{x, y})
+			err -= dx
+			if err < 0 {
+				x += sx
+				err += dy
+			}
+		}
+	}
+	return tiles
 }
 
 // GetNearbyNpcsForVis 回傳附近可見 NPC（含屍體）供 VisibilitySystem 使用。

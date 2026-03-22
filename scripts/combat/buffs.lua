@@ -67,7 +67,7 @@ BUFF_DEFS = {
     -- Advance Spirit: level-dependent (handled dynamically below)
     [79] = { _dynamic = true },
 
-    [80] = { paralyzed = true },                                              -- Freezing Blizzard
+    -- [80] 冰雪颶風：凍結只作用於 NPC 目標（skill.go executeSelfSkill 中處理），不作用於施法者
 
     -- ==================== Dark Elf Skills (97-108) ====================
 
@@ -251,10 +251,7 @@ NON_CANCELLABLE = {
     [111] = true,  -- Dress Evasion（迴避提升）
 
     -- 特殊 debuff（不可被相消術解除）
-    [33]  = true,  -- Curse Paralyze（木乃伊詛咒）
-    [78]  = true,  -- Absolute Barrier（絕對屏障）
     [112] = true,  -- Armor Break（破壞盔甲）
-    [157] = true,  -- Earth Bind（大地屏障）
     [208] = true,  -- Bone Break（骷髏毀壞）
     [226] = true,  -- Gigantic（巨人化）
     [228] = true,  -- Power Grip（力量支配）

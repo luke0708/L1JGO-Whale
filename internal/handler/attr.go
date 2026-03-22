@@ -95,7 +95,64 @@ func HandleAttr(sess *net.Session, r *packet.Reader, deps *Deps) {
 
 	case 223: // 聯盟邀請回應（Java: C_Attr case 223）— 暫存 stub
 		// TODO: 處理聯盟邀請接受/拒絕
+
+	case 321, 322: // 返生術(61) / 終極返生術(75) 復活同意
+		handleResurrectionResponse(sess, player, accepted, deps)
 	}
+}
+
+// handleResurrectionResponse 處理復活同意/拒絕回應（Java: C_Attr case 321/322）。
+func handleResurrectionResponse(sess *net.Session, player *world.PlayerInfo, accepted bool, deps *Deps) {
+	skillID := player.PendingResSkill
+	casterID := player.PendingResCaster
+	player.PendingResSkill = 0
+	player.PendingResCaster = 0
+
+	if !accepted || skillID == 0 || !player.Dead {
+		return
+	}
+
+	caster := deps.World.GetByCharID(casterID)
+	if caster == nil {
+		return // 施法者已離線
+	}
+
+	// 從 Lua 取得復活效果（hp_ratio / mp_ratio）
+	eff := deps.Scripting.GetResurrectEffect(int(skillID))
+	player.Dead = false
+	if eff != nil {
+		player.HP = int32(float64(player.MaxHP) * eff.HPRatio)
+		player.MP = int32(float64(player.MaxMP) * eff.MPRatio)
+	} else {
+		player.HP = int32(player.Level)
+	}
+	if player.HP < 1 {
+		player.HP = 1
+	}
+	if player.HP > player.MaxHP {
+		player.HP = player.MaxHP
+	}
+	if player.MP > player.MaxMP {
+		player.MP = player.MaxMP
+	}
+
+	sendHpUpdate(sess, player)
+	sendMpUpdate(sess, player)
+	SendPlayerStatus(sess, player)
+	SendPutObject(sess, player)
+
+	nearbyTarget := deps.World.GetNearbyPlayersAt(player.X, player.Y, player.MapID)
+	for _, viewer := range nearbyTarget {
+		if viewer.SessionID != sess.ID {
+			SendPutObject(viewer.Session, player)
+		}
+	}
+
+	deps.Log.Info("玩家復活（同意）",
+		zap.String("目標", player.Name),
+		zap.String("施法者", caster.Name),
+		zap.Int32("技能ID", skillID),
+	)
 }
 
 // handleSlotUnlock 處理戒指欄位開通確認回應。

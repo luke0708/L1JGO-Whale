@@ -371,7 +371,7 @@ func (s *SkillSystem) executeResurrection(sess *net.Session, player *world.Playe
 			handler.SendServerMessage(sess, skillMsgCastFail)
 		}
 
-	default: // 18, 75, 165 — 單目標復活
+	case 61, 75: // 返生術 / 終極返生術 — 需要目標同意
 		if targetID == 0 {
 			handler.SendServerMessage(sess, skillMsgCastFail)
 			return
@@ -384,15 +384,29 @@ func (s *SkillSystem) executeResurrection(sess *net.Session, player *world.Playe
 		if target.MapID != player.MapID {
 			return
 		}
-
-		// 技能 18 有機率檢查
-		if skill.ProbabilityDice > 0 {
-			if world.RandInt(10) >= skill.ProbabilityDice {
-				handler.SendServerMessage(sess, skillMsgCastFail)
-				return
-			}
+		// 儲存待復活資訊 → 發送同意對話框
+		target.PendingResSkill = skill.SkillID
+		target.PendingResCaster = player.CharID
+		// Java: msgID 321（返生術）、322（終極返生術）— "%0 要為你施展復活術，是否同意？(Y/N)"
+		msgID := uint16(321)
+		if skill.SkillID == 75 {
+			msgID = 322
 		}
+		handler.SendYesNoDialog(target.Session, msgID, player.Name)
 
+	default: // 165 等 — 直接復活（無需同意）
+		if targetID == 0 {
+			handler.SendServerMessage(sess, skillMsgCastFail)
+			return
+		}
+		target := s.deps.World.GetByCharID(targetID)
+		if target == nil || !target.Dead {
+			handler.SendServerMessage(sess, skillMsgCastFail)
+			return
+		}
+		if target.MapID != player.MapID {
+			return
+		}
 		s.resurrectPlayer(target, player, skill)
 	}
 
@@ -566,7 +580,17 @@ func (s *SkillSystem) executeAttackSkill(sess *net.Session, player *world.Player
 
 	hits := []hitTarget{{npc: npc, dmg: int32(res.Damage), hitCount: res.HitCount, drainMP: int32(res.DrainMP)}}
 
-	if skill.Area > 0 {
+	// 極光雷電（17）：Bresenham 直線目標（Java: getVisibleLineObjects）
+	if skill.SkillID == 17 {
+		lineNpcs := ws.GetNpcsAlongLine(player.X, player.Y, npc.X, npc.Y, player.MapID)
+		for _, other := range lineNpcs {
+			if other.ID == npc.ID {
+				continue
+			}
+			r := s.deps.Scripting.CalcSkillDamage(buildCtx(other))
+			hits = append(hits, hitTarget{npc: other, dmg: int32(r.Damage), hitCount: r.HitCount, drainMP: int32(r.DrainMP)})
+		}
+	} else if skill.Area > 0 {
 		allNpcs := ws.GetNearbyNpcs(npc.X, npc.Y, npc.MapID)
 		for _, other := range allNpcs {
 			if other.ID == npc.ID || other.Dead {
@@ -588,7 +612,7 @@ func (s *SkillSystem) executeAttackSkill(sess *net.Session, player *world.Player
 		useType = 8
 	}
 
-	for _, t := range hits {
+	for i, t := range hits {
 		hitsToApply := t.hitCount
 		if hitsToApply < 1 {
 			hitsToApply = 1
@@ -609,10 +633,18 @@ func (s *SkillSystem) executeAttackSkill(sess *net.Session, player *world.Player
 				if gfxID <= 0 {
 					gfxID = int32(skill.ActionID)
 				}
-				for _, viewer := range nearby {
-					handler.SendUseAttackSkill(viewer.Session, player.CharID, t.npc.ID,
-						int16(dmg), player.Heading, gfxID, useType,
-						int32(player.X), int32(player.Y), int32(t.npc.X), int32(t.npc.Y))
+				if i == 0 {
+					// 主目標：完整攻擊技能封包（含施法動畫）
+					for _, viewer := range nearby {
+						handler.SendUseAttackSkill(viewer.Session, player.CharID, t.npc.ID,
+							int16(dmg), player.Heading, gfxID, useType,
+							int32(player.X), int32(player.Y), int32(t.npc.X), int32(t.npc.Y))
+					}
+				} else {
+					// AoE 次要目標：只顯示命中特效，不重播施法動畫
+					if gfxID > 0 {
+						handler.BroadcastToPlayers(nearby, handler.BuildSkillEffect(t.npc.ID, gfxID))
+					}
 				}
 			}
 
@@ -669,8 +701,8 @@ func (s *SkillSystem) executeAttackSkill(sess *net.Session, player *world.Player
 	}
 
 	// 凍結類攻擊技能：傷害後 MR 判定凍結（Java: setFrozen + S_Poison 灰色）
-	// 22=寒冰氣息, 30=岩牢, 80=冰雪颶風
-	if skill.SkillID == 22 || skill.SkillID == 30 || skill.SkillID == 80 {
+	// 50=冰矛圍籬, 30=岩牢, 80=冰雪颶風（Java: skill 22 寒冰氣息無凍結效果）
+	if skill.SkillID == 50 || skill.SkillID == 30 || skill.SkillID == 80 {
 		for _, t := range hits {
 			if t.npc.Dead || t.npc.Paralyzed || t.npc.HasDebuff(22) || t.npc.HasDebuff(30) || t.npc.HasDebuff(50) || t.npc.HasDebuff(80) {
 				continue
@@ -679,8 +711,8 @@ func (s *SkillSystem) executeAttackSkill(sess *net.Session, player *world.Player
 				dur := skill.BuffDuration
 				if dur <= 0 {
 					switch skill.SkillID {
-					case 22:
-						dur = 8
+					case 50:
+						dur = 16
 					case 30:
 						dur = 10
 					case 80:
@@ -1487,6 +1519,27 @@ func (s *SkillSystem) executeSelfSkill(sess *net.Session, player *world.PlayerIn
 	case 44: // 魔法相消術（自身）
 		s.cancelAllBuffs(player)
 
+	case 60: // 隱身術 — 施法者隱形，直到攻擊/施法/使用道具時解除
+		player.Invisible = true
+		invisBuff := &world.ActiveBuff{
+			SkillID:      skill.SkillID,
+			TicksLeft:    3600 * 5, // 永久直到行動解除（cancelInvisibility）
+			SetInvisible: true,
+		}
+		old60 := player.AddBuff(invisBuff)
+		if old60 != nil {
+			s.revertBuffStats(player, old60)
+		}
+		// 通知施法者已隱身
+		handler.SendInvisible(sess, player.CharID, true)
+		// 從附近所有玩家畫面移除（Java: S_RemoveObject）
+		removeData := handler.BuildRemoveObject(player.CharID)
+		for _, viewer := range nearby {
+			if viewer.CharID != player.CharID {
+				viewer.Session.Send(removeData)
+			}
+		}
+
 	case 78: // 絕對屏障 — 免疫所有傷害，停止 HP/MP 回復
 		// Java: 攻擊/施法/使用道具/裝備武器時解除；移動時不解除
 		player.AbsoluteBarrier = true
@@ -1502,6 +1555,10 @@ func (s *SkillSystem) executeSelfSkill(sess *net.Session, player *world.PlayerIn
 		old78 := player.AddBuff(abBuff)
 		if old78 != nil {
 			s.revertBuffStats(player, old78)
+		}
+		// 廣播屏障特效（Java: castGfx 2234）
+		if skill.CastGfx > 0 {
+			handler.BroadcastToPlayers(nearby, handler.BuildSkillEffect(player.CharID, skill.CastGfx))
 		}
 
 	case 130: // 心靈轉換 — 恢復 2 MP（Java: BODY_TO_MIND +2）
@@ -1596,8 +1653,8 @@ func (s *SkillSystem) executeSelfSkill(sess *net.Session, player *world.PlayerIn
 		}
 	}
 
-	// 自身範圍 AoE 傷害
-	if skill.Type == 64 && skill.Area > 0 && skill.DamageValue > 0 {
+	// 自身範圍 AoE 傷害（龍捲風 53、震裂術 62、冰雪颶風 80 等）
+	if skill.Type == 64 && skill.Area > 0 && (skill.DamageValue > 0 || skill.DamageDice > 0) {
 		nearbyNpcs := s.deps.World.GetNearbyNpcs(player.X, player.Y, player.MapID)
 		for _, npc := range nearbyNpcs {
 			if npc.Dead {
@@ -2165,7 +2222,7 @@ func (s *SkillSystem) applyBuffEffect(target *world.PlayerInfo, skill *data.Skil
 			switch skill.SkillID {
 			case 87:
 				handler.SendParalysis(target.Session, handler.StunApply)
-			case 157, 50, 80, 22, 30:
+			case 157, 50, 80, 30:
 				handler.SendParalysis(target.Session, handler.FreezeApply)
 				// 凍結類：廣播灰色色調給附近所有玩家（Java: S_Poison type=2）
 				broadcastPlayerPoison(target, 2, s.deps)
@@ -2507,7 +2564,7 @@ func (s *SkillSystem) cancelAllBuffs(target *world.PlayerInfo) {
 			switch skillID {
 			case 87:
 				needStunRemove = true
-			case 157, 50, 80, 22, 30:
+			case 157, 50, 80, 30:
 				needFreezeRemove = true
 			default:
 				needParalysisRemove = true
@@ -2595,7 +2652,7 @@ func (s *SkillSystem) tickPlayerBuffs(p *world.PlayerInfo) {
 				switch skillID {
 				case 87:
 					handler.SendParalysis(p.Session, handler.StunRemove)
-				case 157, 50, 80, 22, 30:
+				case 157, 50, 80, 30:
 					handler.SendParalysis(p.Session, handler.FreezeRemove)
 					// 清除灰色色調
 					broadcastPlayerPoison(p, 0, s.deps)
@@ -2646,7 +2703,7 @@ func (s *SkillSystem) tickPlayerBuffs(p *world.PlayerInfo) {
 		} else if buff.SetParalyzed && buff.TicksLeft%25 == 0 {
 			// 3.80C 客戶端灰色色調會自動淡出，每 5 秒重發維持視覺
 			switch skillID {
-			case 157, 50, 80, 22, 30:
+			case 157, 50, 80, 30:
 				broadcastPlayerPoison(p, 2, s.deps)
 			}
 		}
